@@ -14,7 +14,7 @@ This is the official implementation of PillarNet, a simple and high-performance 
     @article{shi2022pillarnet,
       title={PillarNet: Real-Time and High-Performance Pillar-based 3D Object Detection},
       author={Guangsheng Shi, Ruifeng Li, Chao Ma},
-      journal={arXiv},
+      journal={ECCV},
       year={2022},
     }
 
@@ -23,7 +23,17 @@ This is the official implementation of PillarNet, a simple and high-performance 
 
 [2022-7-4]  PillarNet is accepted by ECCV 2022. 
 
-[2022-6-6]  PillarNet achieves a good trade-off between performance and speed for point cloud 3D object detection. 
+[2022-6-6]  PillarNet achieves a good trade-off between performance and speed on nuScenes Dataset and Waymo Open Dataset. 
+
+
+
+# TODO List
+
+- [ ] Introducing BEVFusion for multi-modality 3D object detection.
+
+- [ ] Towards higher performance with extra small costs.
+
+  
 
 ## Contact
 Any questions or suggestions are welcome! 
@@ -62,11 +72,7 @@ In contrast with our used codebase [CenterPoint](https://github.com/tianweiy/Cen
 det3d/ops/pillar_ops  (lossless pillarization from raw point clouds)
 det3d/models/backbones/pcnvgg.py/pcnres18.py/pcnres34.py (backbone for PillarNet)
 ```
-**Note:**
 
-- we also reduce the channel of conv4 from 256 (reported in paper) to 128 and find the similar performance while consuming less latency. 
-
-  Thus, further work will be to search a better combination of conv block numbers and its feature channels in each stage using NAS.
 
 
 ## Acknowlegement
