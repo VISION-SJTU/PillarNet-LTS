@@ -46,7 +46,7 @@ class SpMiddlePillarEncoderVgg(nn.Module):
         )
         norm_cfg = dict(type="BN", eps=1e-3, momentum=0.01)
         self.conv5 = nn.Sequential(
-            dense_block(1256, 256, 3, norm_cfg=norm_cfg, stride=2, padding=1),
+            dense_block(256, 256, 3, norm_cfg=norm_cfg, stride=2, padding=1),
             dense_block(256, 256, 3, norm_cfg=norm_cfg, padding=1),
             dense_block(256, 256, 3, norm_cfg=norm_cfg, padding=1),
         )

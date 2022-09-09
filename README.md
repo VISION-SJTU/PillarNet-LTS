@@ -21,7 +21,7 @@ This is the official implementation of PillarNet, a simple and high-performance 
 
 ## NEWS
 
-[2022-7-4]  PillarNet is accepted by ECCV 2022. 
+[2022-7-4]  PillarNet is accepted by **ECCV 2022**. 
 
 [2022-6-6]  PillarNet achieves a good trade-off between performance and speed on nuScenes Dataset and Waymo Open Dataset. 
 
@@ -69,8 +69,9 @@ Please refer to CenterPoint for the installation and data preparation of PillarN
 In contrast with our used codebase [CenterPoint](https://github.com/tianweiy/CenterPoint), solely small core codes can power PillarNet and also transfer to other codebase such as [mmdetection3d](https://github.com/open-mmlab/mmdetection3d) and [OpenPCDet](https://github.com/open-mmlab/OpenPCDet.git).
 
 ```
-det3d/ops/pillar_ops  (lossless pillarization from raw point clouds)
+det3d/models/readers/dynamic_pillar_encoder.py det3d/ops/pillar_ops  (lossless pillarization from raw point clouds)
 det3d/models/backbones/pcnvgg.py/pcnres18.py/pcnres34.py (backbone for PillarNet)
+det3d/models/backbones/rpn.py (neck for PillarNet)
 ```
 
 
