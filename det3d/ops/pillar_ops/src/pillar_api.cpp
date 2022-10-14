@@ -16,8 +16,6 @@ m.def("create_pillar_indice_pairs_stack_wrapper", &create_pillar_indice_pairs_st
 m.def("flatten_indice_pairs_wrapper", &flatten_indice_pairs_wrapper, "flatten_indice_pairs_wrapper");
 m.def("gather_feature_wrapper", &gather_feature_wrapper, "gather_feature_wrapper");
 m.def("gather_feature_grad_wrapper", &gather_feature_grad_wrapper, "gather_feature_grad_wrapper");
-m.def("kernel_average_concatenate_wrapper", &kernel_average_concatenate_wrapper, "kernel_average_concatenate_wrapper");
-m.def("kernel_average_concatenate_grad_wrapper", &kernel_average_concatenate_grad_wrapper, "kernel_average_concatenate_grad_wrapper");
 
 m.def("scatter_max_wrapper", &scatter_max_wrapper, "scatter_max_wrapper");
 m.def("scatter_max_grad_wrapper", &scatter_max_grad_wrapper, "scatter_max_grad_wrapper");
