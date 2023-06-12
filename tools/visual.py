@@ -1,7 +1,9 @@
 from det3d.core.bbox.box_np_ops import center_to_corner_box3d
 import open3d as o3d
 import argparse
-import pickle 
+import pickle
+import numpy as np
+
 
 def label2color(label):
     colors = [[204/255, 0, 0], [52/255, 101/255, 164/255],
@@ -47,6 +49,87 @@ def plot_boxes(boxes, score_thresh):
     return visuals
 
 
+
+def translate_boxes_to_open3d_instance(gt_boxes):
+    """
+             4-------- 6
+           /|         /|
+          5 -------- 3 .
+          | |        | |
+          . 7 -------- 1
+          |/         |/
+          2 -------- 0
+    """
+    center = gt_boxes[0:3]
+    # lwh = gt_boxes[[3, 4, 5]]
+    lwh = gt_boxes[[4, 3, 5]]  # wlh -> lwh
+    # axis_angles = np.array([0, 0, gt_boxes[6] + 1e-10])
+    axis_angles = np.array([0, 0, - gt_boxes[6] - np.pi/2])
+    rot = o3d.geometry.get_rotation_matrix_from_axis_angle(axis_angles)
+    box3d = o3d.geometry.OrientedBoundingBox(center, rot, lwh)
+
+    line_set = o3d.geometry.LineSet.create_from_oriented_bounding_box(box3d)
+
+    # import ipdb; ipdb.set_trace(context=20)
+    lines = np.asarray(line_set.lines)
+    lines = np.concatenate([lines, np.array([[1, 4], [7, 6]])], axis=0)
+
+    line_set.lines = o3d.utility.Vector2iVector(lines)
+
+    return line_set, box3d
+
+
+box_colormap = [
+    [1, 1, 1],
+    [0, 1, 0],
+    [0, 1, 1],
+    [1, 1, 0],
+]
+
+def draw_box(vis, gt_boxes, color=(0, 1, 0), ref_labels=None, score=None):
+    for i in range(gt_boxes.shape[0]):
+        line_set, box3d = translate_boxes_to_open3d_instance(gt_boxes[i])
+        if ref_labels is None:
+            line_set.paint_uniform_color(color)
+        else:
+            line_set.paint_uniform_color(box_colormap[ref_labels[i]])
+
+        vis.add_geometry(line_set)
+    return vis
+
+
+def draw_scenes(points, gt_boxes=None, ref_boxes=None, ref_labels=None, ref_scores=None, point_colors=None, draw_origin=False):
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
+
+    vis.get_render_option().point_size = 1.0
+    vis.get_render_option().background_color = np.zeros(3)
+
+    # draw origin
+    if draw_origin:
+        axis_pcd = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0, origin=[0, 0, 0])
+        vis.add_geometry(axis_pcd)
+
+    pts = o3d.geometry.PointCloud()
+    pts.points = o3d.utility.Vector3dVector(points[:, :3])
+
+    vis.add_geometry(pts)
+    if point_colors is None:
+        pts.colors = o3d.utility.Vector3dVector(np.ones((points.shape[0], 3)))
+    else:
+        pts.colors = o3d.utility.Vector3dVector(point_colors)
+
+    if gt_boxes is not None:
+        vis = draw_box(vis, gt_boxes, (0, 0, 1))
+
+    if ref_boxes is not None:
+        vis = draw_box(vis, ref_boxes, (0, 1, 0), ref_labels, ref_scores)
+
+    vis.run()
+    vis.destroy_window()
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="CenterPoint")
     parser.add_argument('--path', help='path to visualization file', type=str)
@@ -60,7 +143,6 @@ if __name__ == '__main__':
         points = data['points']
         detections = data['detections']
 
-        pcd = o3d.geometry.PointCloud()
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(points[:, :3])
 

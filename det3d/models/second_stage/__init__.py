@@ -1,2 +1,1 @@
-from .bird_eye_view import BEVFeatureExtractor
-
+from .bev_interpolation import BEVFeature, BEVStrideFeature

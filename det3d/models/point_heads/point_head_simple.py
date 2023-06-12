@@ -12,12 +12,12 @@ def enlarge_box3d(boxes3d, extra_width=[0.2, 0.2, 0.2]):
 
 @POINT_HEAD.register_module
 class PointHead(PointHeadTemplate):
-    def __init__(self, num_class, input_channels, model_cfg, **kwargs):
+    def __init__(self, in_channels, num_class, model_cfg, **kwargs):
         super().__init__(model_cfg=model_cfg, num_class=num_class, **kwargs)
         self.cls_layers = self.make_fc_layers(
             fc_cfg=self.model_cfg.CLS_FC,
-            input_channels=input_channels,
-            output_channels=num_class
+            in_channels=in_channels,
+            out_channels=1
         )
 
     def assign_targets(self, input_dict):
@@ -34,7 +34,7 @@ class PointHead(PointHeadTemplate):
         """
         point_coords = input_dict['point_coords']
 
-        batch_size = input_dict['batch_size']
+        # batch_size = input_dict['batch_size']
         if point_coords[0].shape[-1] == 2:
             gt_boxes = input_dict['roi_targets_dict']['gt_of_rois_src']
             targets_dict = self.assign_stack_targets_2d(

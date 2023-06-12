@@ -1,34 +1,36 @@
 import argparse
-import json
 import os
 import sys
-
-from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning, NumbaWarning
+import datetime
+import os, sys
+import os.path as osp
+sys.path.append(osp.abspath('.'))
+pythonlist = sys.path
+del pythonlist[5]
+sys.path = pythonlist
+from numba.core.errors import NumbaDeprecationWarning, NumbaWarning
 import warnings
 warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
 warnings.simplefilter('ignore', category=NumbaWarning)
+import subprocess
 
-import numpy as np
 import torch
-import yaml
+import torch.distributed as dist
 from det3d.datasets import build_dataset
 from det3d.models import build_detector
 from det3d.torchie import Config
 from det3d.torchie.apis import (
-    build_optimizer,
     get_root_logger,
-    init_dist,
     set_random_seed,
     train_detector,
+    get_model_params,
 )
-import torch.distributed as dist
-import subprocess
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a detector")
     parser.add_argument("config", help="train config file path")
     parser.add_argument("--work_dir", help="the dir to save logs and models")
-    parser.add_argument("--fade_epochs", default=1000, type=int, help="the start epochs to be end db_sample.")
     parser.add_argument("--resume_from", help="the checkpoint file to resume from")
     parser.add_argument(
         "--validate",
@@ -62,14 +64,12 @@ def parse_args():
 
 
 def main():
-
     # torch.manual_seed(0)
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
     # np.random.seed(0)
 
     args = parse_args()
-
     cfg = Config.fromfile(args.config)
 
     # update configs according to CLI args
@@ -77,7 +77,7 @@ def main():
         cfg.work_dir = args.work_dir
     if args.resume_from is not None:
         cfg.resume_from = args.resume_from
-    cfg.fade_epochs = args.fade_epochs
+    os.makedirs(cfg.work_dir, exist_ok=True)
 
     distributed = False
     if "WORLD_SIZE" in os.environ:
@@ -118,26 +118,27 @@ def main():
 
         cfg.gpus = dist.get_world_size()
     else:
-        cfg.local_rank = args.local_rank 
+        cfg.local_rank = args.local_rank
 
     if args.autoscale_lr:
         cfg.lr_config.lr_max = cfg.lr_config.lr_max * cfg.gpus
 
     # init logger before other steps
-    logger = get_root_logger(cfg.log_level)
+    log_file = os.path.join(cfg.work_dir, ('log_train_%s.txt' % datetime.datetime.now().strftime('%Y%m%d-%H%M%S')))
+    logger = get_root_logger(log_file, cfg.log_level)
     logger.info("Distributed training: {}".format(distributed))
     logger.info(f"torch.backends.cudnn.benchmark: {torch.backends.cudnn.benchmark}")
 
     if args.local_rank == 0:
         # copy important files to backup
-        backup_dir = os.path.join(cfg.work_dir, "backup")
-        os.makedirs(backup_dir, exist_ok=True)
-        os.system("cp -r tools %s/" % backup_dir)
-        # logger.info(f"Backup source files to {cfg.work_dir}/det3d")
-        os.system("cp -r det3d %s/" % backup_dir)
-        os.system("cp -r configs %s/" % backup_dir)
+        os.system("cp -r tools %s/" % cfg.work_dir)
+        os.system("cp -r det3d %s/" % cfg.work_dir)
         os.system("cp -r %s %s/" % (args.config, cfg.work_dir))
-        logger.info("Backup files to : {}".format(backup_dir))
+        logger.info(f"Backup source files to {cfg.work_dir}")
+
+    # tb_logger = None
+    # if args.local_rank == 0:
+    #     tb_logger = SummaryWriter(log_dir=os.path.join(cfg.work_dir, 'tensorboard'))
 
     # set random seeds
     if args.seed is not None:
@@ -145,6 +146,7 @@ def main():
         set_random_seed(args.seed)
 
     model = build_detector(cfg.model, train_cfg=cfg.train_cfg, test_cfg=cfg.test_cfg)
+    get_model_params(model)
 
     datasets = [build_dataset(cfg.data.train)]
 

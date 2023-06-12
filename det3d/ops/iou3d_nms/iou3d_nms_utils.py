@@ -26,11 +26,13 @@ def boxes_iou_bev(boxes_a, boxes_b):
 
     return ans_iou
 
+
 def to_pcdet(boxes):
     # transform back to pcdet's coordinate
     boxes = boxes[:, [0, 1, 2, 4, 3, 5, -1]]
     boxes[:, -1] = -boxes[:, -1] - np.pi/2
     return boxes
+
 
 def boxes_iou3d_gpu(boxes_a, boxes_b):
     """
@@ -70,6 +72,7 @@ def boxes_iou3d_gpu(boxes_a, boxes_b):
     iou3d = overlaps_3d / torch.clamp(vol_a + vol_b - overlaps_3d, min=1e-6)
 
     return iou3d
+
 
 def boxes_aligned_iou3d_gpu(boxes_a, boxes_b):
     """

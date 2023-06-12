@@ -61,6 +61,7 @@ norm_cfg = {
     "BN": ("bn", nn.BatchNorm2d),
     "BN1d": ("bn1d", nn.BatchNorm1d),
     "GN": ("gn", nn.GroupNorm),
+    "LN": ("ln", nn.LayerNorm),
 }
 
 

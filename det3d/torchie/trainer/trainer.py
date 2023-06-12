@@ -18,7 +18,6 @@ from .hooks import (
     LrUpdaterHook,
     OptimizerHook,
     lr_updater,
-    EmptyCacheHook
 )
 from .log_buffer import LogBuffer
 from .priority import get_priority
@@ -34,7 +33,6 @@ from .utils import (
 
 def example_to_device(example, device, non_blocking=False) -> dict:
     example_torch = {}
-    # float_names = ["voxels", "bev_map"]
     for k, v in example.items():
         if k in ["anchors", "anchors_mask", "reg_targets", "reg_weights", "labels", "hm",
                  "anno_box", "ind", "mask", 'cat', 'gt_box']:
@@ -44,6 +42,9 @@ def example_to_device(example, device, non_blocking=False) -> dict:
             "bev_map",
             "coordinates",
             "num_points",
+            "xyz",
+            "xyz_batch_cnt",
+            "point_features",
             "num_voxels",
             "cyv_voxels",
             "cyv_num_voxels",
@@ -150,6 +151,7 @@ class Trainer(object):
         work_dir=None,
         log_level=logging.INFO,
         logger=None,
+        tb_logger=None,
         **kwargs,
     ):
         assert callable(batch_processor)
@@ -181,6 +183,7 @@ class Trainer(object):
         else:
             self.logger = logger
         self.log_buffer = LogBuffer()
+        self.tb_logger = tb_logger
 
         self.mode = None
         self._hooks = []
@@ -367,7 +370,11 @@ class Trainer(object):
         self.call_hook("after_data_to_device")
 
         if train_mode:
+            # from thop import profile, clever_format
             losses = model(example, return_loss=True)
+            # macs, params = profile(model, inputs=(example,))
+            # macs, params = clever_format([macs, params], "%.3f")
+
             self.call_hook("after_forward")
             loss, log_vars = parse_second_losses(losses)
             del losses
@@ -397,7 +404,6 @@ class Trainer(object):
         for i, data_batch in enumerate(data_loader):
             global_step = base_step + i
             if self.lr_scheduler is not None:
-                #print(global_step)
                 self.lr_scheduler.step(global_step)
 
             self._inner_iter = i
@@ -416,6 +422,12 @@ class Trainer(object):
                 raise TypeError("batch_processor() must return a dict")
             if "log_vars" in outputs:
                 self.log_buffer.update(outputs["log_vars"], outputs["num_samples"])
+            if self.tb_logger is not None:
+                self.tb_logger.add_scalar('meta_data/lr', self.lr_scheduler.optimizer.lr, self._iter)
+                for key, val in outputs["log_vars"].items():
+                    if isinstance(val, list) and isinstance(val[0], float):
+                        self.tb_logger.add_scalar('train/'+key, val[0], self._iter)
+
             self.outputs = outputs
             self.call_hook("after_train_iter")
             self._iter += 1
@@ -510,7 +522,6 @@ class Trainer(object):
         assert len(data_loaders) == len(workflow)
 
         self._max_epochs = max_epochs
-        self._fade_epochs = kwargs.get('fade_epochs', max_epochs)
         work_dir = self.work_dir if self.work_dir is not None else "NONE"
         self.logger.info(
             "Start running, host: %s, work_dir: %s", get_host_info(), work_dir
@@ -520,9 +531,6 @@ class Trainer(object):
 
         while self.epoch < max_epochs:
             for i, flow in enumerate(workflow):
-                if self.epoch >= self._fade_epochs:
-                    data_loaders[i].dataset.pipeline.transforms[2].db_sampler = None
-
                 mode, epochs = flow
                 if isinstance(mode, str):
                     if not hasattr(self, mode):
@@ -599,4 +607,3 @@ class Trainer(object):
         self.register_hook(IterTimerHook())
         if log_config is not None:
             self.register_logger_hooks(log_config)
-        self.register_hook(EmptyCacheHook(True, True, True))

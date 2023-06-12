@@ -1,13 +1,9 @@
-import math
-from functools import reduce
-
 import numpy as np
 import torch
 from torch import stack as tstack
-try:
-    from det3d.ops.iou3d_nms import iou3d_nms_cuda, iou3d_nms_utils
-except:
-    print("iou3d cuda not built. You don't need this if you use circle_nms. Otherwise, refer to the advanced installation part to build this cuda extension")
+from det3d.ops.iou3d_nms import iou3d_nms_cuda
+from det3d.ops.iou3d_nms import to_pcdet
+
 
 def torch_to_np_dtype(ttype):
     type_map = {
@@ -297,100 +293,111 @@ def box_lidar_to_camera(data, r_rect, velo2cam):
     return torch.cat([xyz, l, h, w, r], dim=-1)
 
 
-def rotate_nms_pcdet(boxes, scores, thresh, pre_maxsize=None, post_max_size=None):
-    """
-    :param boxes: (N, 5) [x, y, z, l, w, h, theta]
-    :param scores: (N)
-    :param thresh:
-    :return:
-    """
+def rotate_nms_pcdet(box_preds, score_preds, iou_preds, label_preds, rectifier, 
+                     nms_thresh, pre_maxsize=None, post_max_size=None, use_rectify=False):
     # transform back to pcdet's coordinate
-    boxes = boxes[:, [0, 1, 2, 4, 3, 5, -1]]
-    boxes[:, -1] = -boxes[:, -1] - np.pi /2
-
-    order = scores.sort(0, descending=True)[1]
+    box_preds_pcdet = to_pcdet(box_preds.clone())
+    
+    rect_scores = torch.pow(score_preds, 1 - rectifier) * torch.pow(iou_preds, rectifier)
+    
+    order = rect_scores.sort(0, descending=True)[1]
     if pre_maxsize is not None:
         order = order[:pre_maxsize]
 
-    boxes = boxes[order].contiguous()
+    box_preds_pcdet = box_preds_pcdet[order].contiguous()
+    keep = torch.LongTensor(box_preds_pcdet.size(0))
 
-    keep = torch.LongTensor(boxes.size(0))
-
-    if len(boxes) == 0:
+    if len(box_preds_pcdet) == 0:
         num_out =0
     else:
-        num_out = iou3d_nms_cuda.nms_gpu(boxes, keep, thresh)
+        num_out = iou3d_nms_cuda.nms_gpu(box_preds_pcdet, keep, nms_thresh)
 
     selected = order[keep[:num_out].cuda()].contiguous()
-
     if post_max_size is not None:
         selected = selected[:post_max_size]
+    
+    if use_rectify:
+        return box_preds[selected], rect_scores[selected], label_preds[selected]
+    
+    return box_preds[selected], score_preds[selected], label_preds[selected]
 
-    return selected
 
-
-def rotate_class_specific_nms_pcdet(boxes, scores, box_preds, labels, num_class, thresh,
-                                    pre_maxsize=None, post_max_size=None):
-    """
-    :param boxes: (N, 5) [x, y, z, l, w, h, theta]
-    :param scores: (N)
-    :param thresh:
-    :return:
-    """
-    # transform back to pcdet's coordinate
-    boxes = boxes[:, [0, 1, 2, 4, 3, 5, -1]]
-    boxes[:, -1] = -boxes[:, -1] - np.pi /2
-
-    assert isinstance(thresh, list)
+def rotate_class_nms_pcdet(box_preds, score_preds, iou_preds, label_preds, nms_thresh,
+                           rectifiers, pre_maxsize, post_max_size, use_rectify=False):
+    
+    assert isinstance(rectifiers, list)
+    assert isinstance(nms_thresh, list)
     assert isinstance(pre_maxsize, list)
     assert isinstance(post_max_size, list)
-
+    
+    num_classes = len(rectifiers)
+    assert len(rectifiers) == len(nms_thresh) == len(pre_maxsize) == len(post_max_size)
+    
     box_preds_list, scores_list, labels_list = [], [], []
-    for cls in range(num_class):
-        mask = labels == cls
-        boxes_cls = boxes[mask]
-        scores_cls = scores[mask]
+    for k in range(num_classes):
+        mask = label_preds == k
         box_preds_cls = box_preds[mask]
-        labels_cls = labels[mask]
+        scores_cls = score_preds[mask]
+        ious_cls = iou_preds[mask]
+        labels_cls = label_preds[mask]
+        
+        if isinstance(use_rectify, list) or isinstance(use_rectify, tuple):
+            cur_use_rectify = use_rectify[k]
+        else:
+            cur_use_rectify = use_rectify
 
-        selected = rotate_nms_pcdet(boxes_cls, scores_cls, thresh[cls], pre_maxsize[cls], post_max_size[cls])
+        selected_boxes, selected_scores, selected_labels = rotate_nms_pcdet(
+            box_preds_cls, scores_cls, ious_cls, labels_cls, rectifiers[k], 
+            nms_thresh[k], pre_maxsize[k], post_max_size[k], use_rectify=cur_use_rectify)
 
-        box_preds_list.append(box_preds_cls[selected])
-        scores_list.append(scores_cls[selected])
-        labels_list.append(labels_cls[selected])
+        box_preds_list.append(selected_boxes)
+        scores_list.append(selected_scores)
+        labels_list.append(selected_labels)
 
-    return torch.cat(box_preds_list, dim=0), torch.cat(scores_list, dim=0), torch.cat(labels_list, dim=0)
+    return torch.cat(box_preds_list, dim=0), \
+            torch.cat(scores_list, dim=0), \
+            torch.cat(labels_list, dim=0)
+            
 
-
-def rotate_class_specific_nms_iou_pcdet(boxes, scores, iou_preds, box_preds, labels, num_class, rectifier, thresh,
-                                        pre_maxsize=None, post_max_size=None):
-    """
-    :param boxes: (N, 5) [x, y, z, l, w, h, theta]
-    :param scores: (N)
-    :param thresh:
-    :return:
-    """
+# following functions is targeted for R-CNN
+def rotate_nms_pcdetv1(box_preds, score_preds, label_preds, nms_thresh):
     # transform back to pcdet's coordinate
-    boxes = boxes[:, [0, 1, 2, 4, 3, 5, -1]]
-    boxes[:, -1] = -boxes[:, -1] - np.pi /2
+    box_preds_pcdet = box_preds[:, [0, 1, 2, 4, 3, 5, -1]].clone()
+    box_preds_pcdet[:, -1] = -box_preds_pcdet[:, -1] - np.pi / 2 
+        
+    order = score_preds.sort(0, descending=True)[1]
 
-    assert isinstance(thresh, list)
-    assert isinstance(rectifier, list)
-    assert isinstance(pre_maxsize, list)
-    assert isinstance(post_max_size, list)
+    box_preds_pcdet = box_preds_pcdet[order].contiguous()
+    keep = torch.LongTensor(box_preds_pcdet.size(0))
+
+    if len(box_preds_pcdet) == 0:
+        num_out =0
+    else:
+        num_out = iou3d_nms_cuda.nms_gpu(box_preds_pcdet, keep, nms_thresh)
+
+    selected = order[keep[:num_out].cuda()].contiguous()
+    
+    return box_preds[selected], score_preds[selected], label_preds[selected]
+
+
+def rotate_class_nms_pcdetv1(num_class, box_preds, score_preds, label_preds, nms_thresh):
+    
+    assert isinstance(nms_thresh, list)
 
     box_preds_list, scores_list, labels_list = [], [], []
-    for cls in range(num_class):
-        mask = labels == cls
-        boxes_cls = boxes[mask]
-        scores_cls = torch.pow(scores[mask], 1 - rectifier[cls]) * torch.pow(iou_preds[mask], rectifier[cls])
+    for k in range(num_class):
+        mask = label_preds == k
         box_preds_cls = box_preds[mask]
-        labels_cls = labels[mask]
+        scores_cls = score_preds[mask]
+        labels_cls = label_preds[mask]
 
-        selected = rotate_nms_pcdet(boxes_cls, scores_cls, thresh[cls], pre_maxsize[cls], post_max_size[cls])
+        selected_boxes, selected_scores, selected_labels = rotate_nms_pcdetv1(
+            box_preds_cls, scores_cls, labels_cls, nms_thresh[k])
 
-        box_preds_list.append(box_preds_cls[selected])
-        scores_list.append(scores_cls[selected])
-        labels_list.append(labels_cls[selected])
+        box_preds_list.append(selected_boxes)
+        scores_list.append(selected_scores)
+        labels_list.append(selected_labels)
 
-    return torch.cat(box_preds_list, dim=0), torch.cat(scores_list, dim=0), torch.cat(labels_list, dim=0)
+    return torch.cat(box_preds_list, dim=0), \
+            torch.cat(scores_list, dim=0), \
+            torch.cat(labels_list, dim=0)

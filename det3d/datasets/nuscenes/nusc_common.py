@@ -551,11 +551,10 @@ def create_nuscenes_infos(root_path, version="v1.0-trainval", nsweeps=10, filter
     assert version in available_vers
     if version == "v1.0-trainval":
         train_scenes = splits.train
-        # random.shuffle(train_scenes)
-        # train_scenes = train_scenes[:int(len(train_scenes)*0.2)]
-        val_scenes = splits.val
         if trainval:
-            train_scenes = train_scenes + val_scenes
+            print("Use trainval as train set.")
+            train_scenes = splits.train + splits.val
+        val_scenes = splits.val
     elif version == "v1.0-test":
         train_scenes = splits.test
         val_scenes = []

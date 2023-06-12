@@ -1,19 +1,14 @@
 import abc
-import sys
-import time
 from collections import OrderedDict
-from functools import reduce
 
 import numba
 import numpy as np
 
 from det3d.core.bbox import box_np_ops
 from det3d.core.bbox.geometry import (
-    is_line_segment_intersection_jit,
     points_in_convex_polygon_3d_jit,
     points_in_convex_polygon_jit,
 )
-import copy
 
 
 class BatchSampler:

@@ -1,17 +1,7 @@
-import sys
 import pickle
-import json
-import random
-import operator
-from numba.cuda.simulator.api import detect
 import numpy as np
 
-from functools import reduce
-from pathlib import Path
-from copy import deepcopy
-
 from det3d.datasets.custom import PointCloudDataset
-
 from det3d.datasets.registry import DATASETS
 
 
@@ -30,29 +20,49 @@ class WaymoDataset(PointCloudDataset):
         sample=False,
         nsweeps=1,
         load_interval=1,
+        use_cbgs=True,
         **kwargs,
     ):
         self.load_interval = load_interval 
         self.sample = sample
         self.nsweeps = nsweeps
+        self.use_cbgs = use_cbgs
         print("Using {} sweeps".format(nsweeps))
         super(WaymoDataset, self).__init__(
             root_path, info_path, pipeline, test_mode=test_mode, class_names=class_names
         )
-
-        self._info_path = info_path
-        self._class_names = class_names
         self._num_point_features = WaymoDataset.NumPointFeatures if nsweeps == 1 else WaymoDataset.NumPointFeatures+1
 
     def reset(self):
-        assert False 
+        raise NotImplementedError
 
     def load_infos(self, info_path):
 
         with open(self._info_path, "rb") as f:
             _waymo_infos_all = pickle.load(f)
+        _waymo_infos_all = _waymo_infos_all[::self.load_interval]
+        
+        if not self.test_mode and self.use_cbgs:
+            _cls_infos = {name: [] for name in self._class_names}
+            for info in _waymo_infos_all:
+                for name in set(info["gt_names"]):
+                    if name in self._class_names:
+                        _cls_infos[name].append(info)
 
-        self._waymo_infos = _waymo_infos_all[::self.load_interval]
+            duplicated_samples = sum([len(v) for _, v in _cls_infos.items()])
+            _cls_dist = {k: len(v) / max(duplicated_samples, 1) for k, v in _cls_infos.items()}
+
+            self._waymo_infos = []
+
+            frac = 1.0 / len(self._class_names)
+            ratios = [frac / v for v in _cls_dist.values()]
+
+            for cls_infos, ratio in zip(list(_cls_infos.values()), ratios):
+                self._waymo_infos += np.random.choice(
+                    cls_infos, int(len(cls_infos) * ratio)
+                ).tolist()
+        else:
+            self._waymo_infos = _waymo_infos_all
 
         print("Using {} Frames".format(len(self._waymo_infos)))
 

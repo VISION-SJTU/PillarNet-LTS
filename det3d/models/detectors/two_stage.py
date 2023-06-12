@@ -1,42 +1,42 @@
+import torch 
+from torch import nn
 from det3d.core.bbox import box_torch_ops
 from ..registry import DETECTORS
 from .base import BaseDetector
 from .. import builder
-import torch 
-from torch import nn 
 
 
 @DETECTORS.register_module
 class TwoStageDetector(BaseDetector):
-    def __init__(
-        self,
-        first_stage_cfg,
-        second_stage_modules,
-        roi_head, 
-        NMS_POST_MAXSIZE,
-        num_point=1,
-        freeze=False,
-        use_final_feature=False,
-        **kwargs
-    ):
+    def __init__(self,
+                 first_stage_cfg,
+                 second_stage_modules,
+                 roi_head, 
+                 point_head=None,
+                 num_point=1,
+                 freeze=False,
+                 use_final_feature=False,
+                 **kwargs):
         super(TwoStageDetector, self).__init__()
         self.single_det = builder.build_detector(first_stage_cfg, **kwargs)
-        self.NMS_POST_MAXSIZE = NMS_POST_MAXSIZE
 
         if freeze:
             print("Freeze First Stage Network")
             # we train the model in two steps 
             self.single_det = self.single_det.freeze()
+            
         self.bbox_head = self.single_det.bbox_head
-
+        self.test_cfg = self.single_det.test_cfg
+        
         self.second_stage = nn.ModuleList()
         # can be any number of modules 
         # bird eye view, cylindrical view, image, multiple timesteps, etc.. 
         for module in second_stage_modules:
             self.second_stage.append(builder.build_second_stage_module(module))
 
+        if point_head is not None:
+            self.point_head = builder.build_point_head(point_head)
         self.roi_head = builder.build_roi_head(roi_head)
-
         self.num_point = num_point
         self.use_final_feature = use_final_feature
 
@@ -84,17 +84,13 @@ class TwoStageDetector(BaseDetector):
         feature_vector_length = sum([feat[0].shape[-1] for feat in features])
 
         rois = first_pred[0]['box3d_lidar'].new_zeros((batch_size, 
-            self.NMS_POST_MAXSIZE, box_length 
-        ))
+            self.NMS_POST_MAXSIZE, box_length))
         roi_scores = first_pred[0]['scores'].new_zeros((batch_size,
-            self.NMS_POST_MAXSIZE
-        ))
+            self.NMS_POST_MAXSIZE))
         roi_labels = first_pred[0]['label_preds'].new_zeros((batch_size,
-            self.NMS_POST_MAXSIZE), dtype=torch.long
-        )
+            self.NMS_POST_MAXSIZE), dtype=torch.long)
         roi_features = features[0][0].new_zeros((batch_size, 
-            self.NMS_POST_MAXSIZE, feature_vector_length 
-        ))
+            self.NMS_POST_MAXSIZE, feature_vector_length))
 
         for i in range(batch_size):
             num_obj = features[0][i].shape[0]
@@ -122,9 +118,9 @@ class TwoStageDetector(BaseDetector):
         return example 
 
     def post_process(self, batch_dict):
-        batch_size = batch_dict['batch_size']
         pred_dicts = [] 
-
+        
+        batch_size = batch_dict['batch_size']
         for index in range(batch_size):
             box_preds = batch_dict['batch_box_preds'][index]
             cls_preds = batch_dict['batch_cls_preds'][index]  # this is the predicted iou 
@@ -134,13 +130,13 @@ class TwoStageDetector(BaseDetector):
                 # move rotation to the end (the create submission file will take elements from 0:6 and -1) 
                 box_preds = box_preds[:, [0, 1, 2, 3, 4, 5, 7, 8, 6]]
 
-            scores = torch.sqrt(torch.sigmoid(cls_preds).reshape(-1) * batch_dict['roi_scores'][index].reshape(-1)) 
-            mask = (label_preds != 0).reshape(-1)
+            scores = torch.sqrt(torch.sigmoid(cls_preds).view(-1) * batch_dict['roi_scores'][index].view(-1)) 
+            mask = (label_preds != 0).view(-1)
 
             box_preds = box_preds[mask, :]
             scores = scores[mask]
-            labels = label_preds[mask]-1
-
+            labels = label_preds[mask] - 1
+            
             # currently don't need nms 
             pred_dict = {
                 'box3d_lidar': box_preds,
@@ -152,7 +148,6 @@ class TwoStageDetector(BaseDetector):
             pred_dicts.append(pred_dict)
 
         return pred_dicts 
-
 
     def forward(self, example, return_loss=True, **kwargs):
         out = self.single_det.forward_two_stage(example, 
@@ -166,7 +161,7 @@ class TwoStageDetector(BaseDetector):
         else:
             raise NotImplementedError
 
-        # N C H W -> N H W C 
+        # B C H W -> B H W C 
         if self.use_final_feature:
             example['bev_feature'] = final_feature.permute(0, 2, 3, 1).contiguous()
         else:

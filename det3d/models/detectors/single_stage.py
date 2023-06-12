@@ -9,16 +9,14 @@ from det3d.torchie.trainer import load_checkpoint
 
 @DETECTORS.register_module
 class SingleStageDetector(BaseDetector):
-    def __init__(
-        self,
-        reader,
-        backbone,
-        neck=None,
-        bbox_head=None,
-        train_cfg=None,
-        test_cfg=None,
-        pretrained=None,
-    ):
+    def __init__(self,
+                 reader,
+                 backbone,
+                 neck=None,
+                 bbox_head=None,
+                 train_cfg=None,
+                 test_cfg=None,
+                 pretrained=None):
         super(SingleStageDetector, self).__init__()
         self.reader = builder.build_reader(reader)
         self.backbone = builder.build_backbone(backbone)

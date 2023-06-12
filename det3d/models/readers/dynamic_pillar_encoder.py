@@ -1,76 +1,50 @@
 import torch
 from torch import nn
-from ..registry import READERS
-from ..utils import build_norm_layer
 from det3d.ops.pillar_ops.pillar_modules import PillarMaxPooling
+
+from ..registry import READERS
 
 
 @READERS.register_module
-class DynamicPillarFeatureNet(nn.Module):
-    def __init__(
-        self,
-        num_input_features=2,
-        num_filters=(32,),
-        pillar_size=0.1,
-        virtual=False,
-        pc_range=(0, -40, -3, 70.4, 40, 1),
-        **kwargs
-    ):
-        """
-        Pillar Feature Net.
-        The network prepares the pillar features and performs forward pass through PFNLayers. This net performs a
-        similar role to SECOND's second.pytorch.voxelnet.VoxelFeatureExtractor.
-        :param num_input_features: <int>. Number of input features, either x, y, z or x, y, z, r.
-        :param num_filters: (<int>: N). Number of features in each of the N PFNLayers.
-        :param pillar_size: (<float>: 3). Size of pillars.
-        :param pc_range: (<float>: 6). Point cloud range, only utilize x and y min.
-        """
+class DynamicPFE(nn.Module):
+    def __init__(self,
+                 in_channels=5,
+                 num_filters=(32, ),
+                 pillar_size=0.1,
+                 pc_range=(0, -40, -3, 70.4, 40, 1)):
         super().__init__()
+        self.pillar_size = pillar_size
         self.pc_range = pc_range
+        
         assert len(num_filters) > 0
-
-        self.num_input = num_input_features
-        num_filters = [6 + num_input_features] + list(num_filters)
+        # only use the relative distance to its pillar centers
+        num_filters = [2 + in_channels] + list(num_filters)
         self.pfn_layers = PillarMaxPooling(
             mlps=num_filters,
             pillar_size=pillar_size,
             point_cloud_range=pc_range
         )
+        self.height, self.width = self.pfn_layers.height, self.pfn_layers.width
 
-        self.virtual = virtual
+    def forward(self, data, **kwargs):
+        pts_xy = []
+        pts_batch_cnt = []
+        pts_features = []
+        for points in data["points"]:
+            coors_x = ((points[:, 0] - self.pc_range[0]) / self.pillar_size).floor().int()
+            coors_y = ((points[:, 1] - self.pc_range[1]) / self.pillar_size).floor().int()
+            
+            mask = (coors_x >= 0) & (coors_x < self.width) & \
+                (coors_y >= 0) & (coors_y < self.height)
+            coors_xy = torch.stack((coors_x[mask], coors_y[mask]), dim=1)
+    
+            pts_xy.append(coors_xy)
+            pts_features.append(points[mask])
+            pts_batch_cnt.append(len(coors_xy))
 
-    @torch.no_grad()
-    def absl_to_relative(self, absolute):
-        relative = absolute.detach().clone()
-        relative[..., 0] -= self.pc_range[0]
-        relative[..., 1] -= self.pc_range[1]
-        relative[..., 2] -= self.pc_range[2]
-
-        return relative
-
-    def forward(self, example, **kwargs):
-        points_list = example.pop("points")
-        device = points_list[0].device
-
-        if self.virtual:
-            # virtual_point_mask = features[..., -2] == -1
-            # virtual_points = features[virtual_point_mask]
-            # virtual_points[..., -2] = 1
-            # features[..., -2] = 0
-            # features[virtual_point_mask] = virtual_points
-            raise NotImplementedError
-
-        xyz = []
-        xyz_batch_cnt = []
-        for points in points_list:
-            points = self.absl_to_relative(points)
-
-            xyz_batch_cnt.append(len(points))
-            xyz.append(points[:, :3])
-
-        xyz = torch.cat(xyz, dim=0).contiguous()
-        pt_features = torch.cat(points_list, dim=0).contiguous()
-        xyz_batch_cnt = torch.tensor(xyz_batch_cnt, dtype=torch.int32).to(device)
-
-        sp_tensor = self.pfn_layers(xyz, xyz_batch_cnt, pt_features)
-        return sp_tensor
+        pts_xy = torch.cat(pts_xy)
+        pts_batch_cnt = pts_xy.new_tensor(pts_batch_cnt, dtype=torch.int32)
+        pts_features = torch.cat(pts_features)
+        
+        sparse_tensor = self.pfn_layers(pts_xy, pts_batch_cnt, pts_features)
+        return sparse_tensor

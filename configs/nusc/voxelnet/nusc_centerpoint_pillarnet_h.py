@@ -43,7 +43,7 @@ model = dict(
         ds_num_filters=[256, 256],
         us_layer_strides=[1, 2],
         us_num_filters=[128, 128],
-        num_input_features=[256, 256],   # [256, 256]
+        num_input_features=[128, 256],   # [256, 256]
         logger=logging.getLogger("RPN"),
     ),
     bbox_head=dict(
@@ -53,7 +53,7 @@ model = dict(
         dataset='nuscenes',
         weight=0.25,
         code_weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2, 1.0, 1.0],
-        common_heads={'reg': (2, 2), 'height': (1, 2), 'dim': (3, 2), 'rot': (2, 2), 'vel': (2, 2), 'iou': (1, 2)},
+        common_heads={'reg': (2, 2), 'height': (1, 2), 'dim': (3, 2), 'rot': (2, 2), 'vel': (2, 2)},
         share_conv_channel=64,
         dcn_head=False,
     ),
@@ -178,7 +178,7 @@ test_pipeline = [
 
 train_anno = "data/nuScenes/infos_train_10sweeps_withvelo_filter_True.pkl"
 val_anno = "data/nuScenes/infos_val_10sweeps_withvelo_filter_True.pkl"
-test_anno = None
+test_anno = "data/nuScenes/infos_test_10sweeps_withvelo_filter_True.pkl"
 
 data = dict(
     samples_per_gpu=1,
@@ -191,7 +191,6 @@ data = dict(
         nsweeps=nsweeps,
         class_names=class_names,
         pipeline=train_pipeline,
-        # load_interval=1
     ),
     val=dict(
         type=dataset_type,
@@ -208,7 +207,7 @@ data = dict(
         root_path=data_root,
         info_path=test_anno,
         ann_file=test_anno,
-        test_mode=True,
+        test_mode=False,
         nsweeps=nsweeps,
         class_names=class_names,
         pipeline=test_pipeline,
@@ -230,7 +229,7 @@ lr_config = dict(
 checkpoint_config = dict(interval=1)
 # yapf:disable
 log_config = dict(
-    interval=2,
+    interval=5,
     hooks=[
         dict(type="TextLoggerHook"),
         # dict(type='TensorboardLoggerHook')

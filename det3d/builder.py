@@ -5,7 +5,6 @@ from functools import partial
 import det3d.core.sampler.preprocess as prep
 import numpy as np
 import torch
-from det3d.core.input.voxel_generator import VoxelGenerator
 from det3d.core.sampler.preprocess import DataBasePreprocessor
 from det3d.core.sampler.sample_ops import DataBaseSamplerV2
 from det3d.solver import learning_schedules
@@ -14,17 +13,6 @@ from det3d.solver import optim
 from det3d.solver.fastai_optim import FastAIMixedOptim, OptimWrapper
 from torch import nn
 
-
-def build_voxel_generator(voxel_config):
-
-    voxel_generator = VoxelGenerator(
-        voxel_size=voxel_config.VOXEL_SIZE,
-        point_cloud_range=voxel_config.RANGE,
-        max_num_points=voxel_config.MAX_POINTS_NUM_PER_VOXEL,
-        max_voxels=20000,
-    )
-
-    return voxel_generator
 
 def build_db_preprocess(db_prep_config, logger=None):
     logger = logging.getLogger("build_db_preprocess")

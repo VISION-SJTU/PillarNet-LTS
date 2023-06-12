@@ -55,6 +55,7 @@ model = dict(
         common_heads={'reg': (2, 2), 'height': (1, 2), 'dim': (3, 2), 'rot': (2, 2), 'vel': (2, 2)},
         share_conv_channel=64,
         dcn_head=False,
+        order_class_names=class_names,
     ),
 )
 

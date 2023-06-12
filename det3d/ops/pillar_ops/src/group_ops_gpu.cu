@@ -5,76 +5,55 @@
 #define DIVUP(m,n) ((m) / (n) + ((m) % (n) > 0))
 
 
-
-__global__ void flattenIndicePairsKernel(int N, int K, const int *indicePairs, const int *position,
-                                         int *firstIndices, int *secondIndices) {
-    // indicePairs: (N, K) -1[none]  position: (N*K, )  -1[none]
-    // firstIndices: (L,)            secondIndices: (L,)
-
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= N * K) return;
-
-    indicePairs += tid;
-    position += tid;
-    if (indicePairs[0] < 0) return;
-
-    int index = position[0];
-    firstIndices[index] = tid / K;
-    secondIndices[index] = indicePairs[0];
-}
-
-void flatten_indice_paris_kernel_launcher(int N, int K, const int *indicePairs, const int *position,
-                                          int *firstIndices, int *secondIndices) {
-    cudaError_t err;
-
-    dim3 blocks(DIVUP(N*K, THREADS_PER_BLOCK));  // blockIdx.x(col), blockIdx.y(row)
-    dim3 threads(THREADS_PER_BLOCK);
-
-    flattenIndicePairsKernel<<<blocks, threads>>>(N, K, indicePairs, position, firstIndices, secondIndices);
-
-    err = cudaGetLastError();
-    if (cudaSuccess != err) {
-        fprintf(stderr, "CUDA kernel failed (flattenIndicePairsKernel): %s\n", cudaGetErrorString(err));
-        exit(-1);
-    }
-}
-
-__global__ void gather_feature_kernel(int L, int C, const int *set_indices, const float *features, float *out){
-    // set_indices: (L,)         features: (N, C)
-    // out: (L, C)
+__global__ void gather_indice_kernel(int L, const int *index, const int *indices, int *outs){
+    // index: (L,)  
+	// indices: (N, )
+    // outs: (L, )
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= L) return;
 
-    set_indices += tid;
-    out += tid * C;
-    features += set_indices[0] * C;
-    for (int c = 0; c < C; ++c){
-        out[c] = features[c];
-    }
+    outs[tid] = indices[index[tid]];
 }
 
-__global__ void gather_feature_grad_kernel(int L, int C, const int *set_indices, const float *outGrad, float *inGrad){
-    // set_indices: (L,)         grad_features: (L, C)
-    // grad_out: (N, C)
+
+__global__ void gather_feature_kernel(int L, int C, const int *index, const float *features, float *outs){
+    // index: (L,)  
+	// features: (N, C)
+    // outs: (L, C)
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= L) return;
 
-    set_indices += tid;
-    outGrad += tid * C;
-    inGrad += set_indices[0] * C;
+    outs += tid * C;
+    features += index[tid] * C;
     for (int c = 0; c < C; ++c){
-        atomicAdd(inGrad + c, outGrad[c]);
+        outs[c] = features[c];
     }
 }
 
-void gather_feature_kernel_launcher(int L, int C, const int *set_indices, const float *features, float *out){
+__global__ void gather_feature_grad_kernel(int L, int C, const int *index, const float *grad_outs, float *grad_features){
+    // index: (L,)
+	// grad_outs: (L, C)
+    // grad_features: (N, C)
+
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= L) return;
+
+    grad_outs += tid * C;
+    grad_features += index[tid] * C;
+    for (int c = 0; c < C; ++c){
+        atomicAdd(grad_features + c, grad_outs[c]);
+    }
+}
+
+
+void gather_indice_kernel_launcher(int L, const int *index, const int *indices, int *outs) {
     cudaError_t err;
     dim3 blocks(DIVUP(L, THREADS_PER_BLOCK));  // blockIdx.x(col), blockIdx.y(row)
     dim3 threads(THREADS_PER_BLOCK);
 
-    gather_feature_kernel<<<blocks, threads>>>(L, C, set_indices, features, out);
+    gather_indice_kernel<<<blocks, threads>>>(L, index, indices, outs);
     // cudaDeviceSynchronize();  // for using printf in kernel function
     err = cudaGetLastError();
     if (cudaSuccess != err) {
@@ -83,12 +62,27 @@ void gather_feature_kernel_launcher(int L, int C, const int *set_indices, const 
     }
 }
 
-void gather_feature_grad_kernel_launcher(int L, int C, const int *set_indices, const float *outGrad, float *inGrad){
+
+void gather_feature_kernel_launcher(int L, int C, const int *index, const float *features, float *outs){
     cudaError_t err;
     dim3 blocks(DIVUP(L, THREADS_PER_BLOCK));  // blockIdx.x(col), blockIdx.y(row)
     dim3 threads(THREADS_PER_BLOCK);
 
-    gather_feature_grad_kernel<<<blocks, threads>>>(L, C, set_indices, outGrad, inGrad);
+    gather_feature_kernel<<<blocks, threads>>>(L, C, index, features, outs);
+    // cudaDeviceSynchronize();  // for using printf in kernel function
+    err = cudaGetLastError();
+    if (cudaSuccess != err) {
+        fprintf(stderr, "CUDA kernel failed : %s\n", cudaGetErrorString(err));
+        exit(-1);
+    }
+}
+
+void gather_feature_grad_kernel_launcher(int L, int C, const int *index, const float *grad_outs, float *grad_features){
+    cudaError_t err;
+    dim3 blocks(DIVUP(L, THREADS_PER_BLOCK));  // blockIdx.x(col), blockIdx.y(row)
+    dim3 threads(THREADS_PER_BLOCK);
+
+    gather_feature_grad_kernel<<<blocks, threads>>>(L, C, index, grad_outs, grad_features);
     // cudaDeviceSynchronize();  // for using printf in kernel function
     err = cudaGetLastError();
     if (cudaSuccess != err) {

@@ -1,13 +1,8 @@
-import sys
 import pickle
 import json
-import random
 import operator
 import numpy as np
-
-from functools import reduce
 from pathlib import Path
-from copy import deepcopy
 
 try:
     from nuscenes.nuscenes import NuScenes
@@ -69,9 +64,10 @@ class NuScenesDataset(PointCloudDataset):
         self.eval_version = "detection_cvpr_2019"
 
     def reset(self):
-        self.logger.info(f"re-sample {self.frac} frames from full set")
-        random.shuffle(self._nusc_infos_all)
-        self._nusc_infos = self._nusc_infos_all[: self.frac]
+        # self.logger.info(f"re-sample {self.frac} frames from full set")
+        # random.shuffle(self._nusc_infos_all)
+        # self._nusc_infos = self._nusc_infos_all[: self.frac]
+        raise NotImplementedError
 
     def load_infos(self, info_path):
 
@@ -102,15 +98,15 @@ class NuScenesDataset(PointCloudDataset):
                     cls_infos, int(len(cls_infos) * ratio)
                 ).tolist()
 
-            _cls_infos = {name: [] for name in self._class_names}
-            for info in self._nusc_infos:
-                for name in set(info["gt_names"]):
-                    if name in self._class_names:
-                        _cls_infos[name].append(info)
+            # _cls_infos = {name: [] for name in self._class_names}
+            # for info in self._nusc_infos:
+            #     for name in set(info["gt_names"]):
+            #         if name in self._class_names:
+            #             _cls_infos[name].append(info)
 
-            _cls_dist = {
-                k: len(v) / len(self._nusc_infos) for k, v in _cls_infos.items()
-            }
+            # _cls_dist = {
+            #     k: len(v) / len(self._nusc_infos) for k, v in _cls_infos.items()
+            # }
         else:
             if isinstance(_nusc_infos_all, dict):
                 self._nusc_infos = []

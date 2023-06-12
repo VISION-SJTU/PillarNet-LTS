@@ -1,37 +1,34 @@
-import argparse
-import copy
-import json
-import os
-import sys
-
-try:
-    import apex
-except:
-    print("No APEX!")
-import numpy as np
+import copy, argparse
+import os, time, pickle
+import apex
+import os, sys
+import os.path as osp
+sys.path.append(osp.abspath('.'))
+pythonlist = sys.path
+del pythonlist[5]
+sys.path = pythonlist
 import torch
-import yaml
 from det3d import torchie
 from det3d.datasets import build_dataloader, build_dataset
 from det3d.models import build_detector
 from det3d.torchie import Config
 from det3d.torchie.apis import (
     batch_processor,
-    build_optimizer,
     get_root_logger,
-    init_dist,
-    set_random_seed,
-    train_detector,
 )
-from det3d.torchie.trainer import get_dist_info, load_checkpoint
+from det3d.torchie.trainer import load_checkpoint
 from det3d.torchie.trainer.utils import all_gather, synchronize
 from torch.nn.parallel import DistributedDataParallel
-import pickle 
-import time 
+
 
 def save_pred(pred, root):
     with open(os.path.join(root, "prediction.pkl"), "wb") as f:
         pickle.dump(pred, f)
+        
+def load_pred(root):
+    with open(os.path.join(root, "prediction.pkl"), "rb") as f:
+        pred = pickle.load(f)
+    return pred
 
 
 def parse_args():
@@ -71,12 +68,10 @@ def parse_args():
 
 
 def main():
-
     # torch.manual_seed(0)
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
     # np.random.seed(0)
-
     args = parse_args()
 
     cfg = Config.fromfile(args.config)
@@ -93,7 +88,6 @@ def main():
     if distributed:
         torch.cuda.set_device(args.local_rank)
         torch.distributed.init_process_group(backend="nccl", init_method="env://")
-
         cfg.gpus = torch.distributed.get_world_size()
     else:
         cfg.gpus = args.gpus
@@ -122,7 +116,6 @@ def main():
 
     checkpoint = load_checkpoint(model, args.checkpoint, map_location="cpu")
 
-    # put model on gpus
     if distributed:
         model = apex.parallel.convert_syncbn_model(model)
         model = DistributedDataParallel(
@@ -133,11 +126,9 @@ def main():
             find_unused_parameters=True,
         )
     else:
-        # model = fuse_bn_recursively(model)
         model = model.cuda()
 
     model.eval()
-    mode = "val"
 
     logger.info(f"work dir: {args.work_dir}")
     if cfg.local_rank == 0:
@@ -167,6 +158,9 @@ def main():
             outputs = batch_processor(
                 model, data_batch, train_mode=False, local_rank=args.local_rank,
             )
+        # from tools.visual import draw_scenes
+        # draw_scenes(data_batch['points'][0].cpu().numpy(), ref_boxes=outputs[0]['box3d_lidar'].cpu().numpy())
+            
         for output in outputs:
             token = output["metadata"]["token"]
             for k, v in output.items():
@@ -181,11 +175,9 @@ def main():
                 prog_bar.update()
 
     synchronize()
-
     all_predictions = all_gather(detections)
 
     print("\n Total time per frame: ", (time_end -  time_start) / (end - start))
-
     if args.local_rank != 0:
         return
 
@@ -196,8 +188,9 @@ def main():
     if not os.path.exists(args.work_dir):
         os.makedirs(args.work_dir)
 
-    save_pred(predictions, args.work_dir)
-
+    # save_pred(predictions, args.work_dir)
+    # predictions = load_pred(args.work_dir)
+    
     result_dict, _ = dataset.evaluation(copy.deepcopy(predictions), output_dir=args.work_dir, testset=args.testset)
 
     if result_dict is not None:

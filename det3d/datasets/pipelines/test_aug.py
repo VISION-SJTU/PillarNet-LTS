@@ -1,7 +1,4 @@
-from det3d import torchie
-
 from ..registry import PIPELINES
-from .compose import Compose
 
 
 @PIPELINES.register_module

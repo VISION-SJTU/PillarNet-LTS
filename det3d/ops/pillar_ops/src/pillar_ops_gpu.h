@@ -4,21 +4,15 @@
 #include "cuda_utils.h"
 
 
-int create_pillar_indices_stack_wrapper(float bev_size, at::Tensor xyz_tensor, at::Tensor xyz_batch_cnt_tensor,
-										at::Tensor pillar_mask_tensor);
+int create_point_pillar_index_stack_wrapper(at::Tensor pts_xy_tensor, at::Tensor pts_batch_cnt_tensor,
+										    at::Tensor pillars_mask_tensor, at::Tensor point_pillar_index_tensor);
 
-int create_pillar_indices_wrapper(at::Tensor bev_indices_tensor, at::Tensor pillar_indices_tensor);
+void create_point_pillar_index_stack_kernel_launcher(int N, int B, int H, int W,
+												     const int *pts_xy, const int *pts_batch_cnt, 
+                                                     bool *pillar_mask, int *point_pillar_index);
 
-int create_pillar_indice_pairs_stack_wrapper(float bev_size, at::Tensor xyz_tensor, at::Tensor xyz_batch_cnt_tensor,
-											 at::Tensor pillar_bev_indices_tensor, at::Tensor indice_pairs_tensor);
+int create_pillar_indices_wrapper(at::Tensor pillars_position_tensor, at::Tensor pillar_indices_tensor);
 
-void create_pillar_indices_stack_kernel_launcher(int N, int B, int H, int W, float bev_size,
-												 const float *xyz, const int *xyz_batch_cnt, bool *pillar_mask);
-
-void create_pillar_indices_kernel_launcher(int B, int H, int W, const int *bevIndices, int *pillarIndices);
-
-void create_pillar_indice_pairs_stack_kernel_launcher(int N, int B, int H, int W, float bev_size,
-													  const float *xyz, const int *xyz_batch_cnt,
-													  const int *pillar_bev_indices, int *indice_pairs);
+void create_pillar_indices_kernel_launcher(int B, int H, int W, const int *pillars_position, int *pillar_indices);
 
 #endif //PILLAR_QUERY_OPS_GPU_H

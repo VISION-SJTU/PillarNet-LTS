@@ -32,11 +32,12 @@ TYPE_LIST = ['UNKNOWN', 'VEHICLE', 'PEDESTRIAN', 'SIGN', 'CYCLIST']
 
 def get_obj(path):
     with open(path, 'rb') as f:
-            obj = pickle.load(f)
+        obj = pickle.load(f)
     return obj 
 
-# ignore sign class 
+# ignore sign class and change as the used ordered class names
 LABEL_TO_TYPE = {0: 1, 1:2, 2:4}
+#LABEL_TO_TYPE = {0: 1, 1:4, 2:2}
 
 import uuid 
 
@@ -306,6 +307,8 @@ def get_available_frames(root, split):
 
 def create_waymo_infos(root_path, split='train', nsweeps=1):
     frames = get_available_frames(root_path, split)
+    
+    # frames = frames[::100]
 
     waymo_infos = _fill_infos(
         root_path, frames, split, nsweeps

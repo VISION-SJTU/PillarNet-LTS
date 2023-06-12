@@ -9,11 +9,10 @@
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
+m.def("create_point_pillar_index_stack_wrapper", &create_point_pillar_index_stack_wrapper, "create_point_pillar_index_stack_wrapper");
 m.def("create_pillar_indices_wrapper", &create_pillar_indices_wrapper, "create_pillar_indices_wrapper");
-m.def("create_pillar_indices_stack_wrapper", &create_pillar_indices_stack_wrapper, "create_pillar_indices_stack_wrapper");
-m.def("create_pillar_indice_pairs_stack_wrapper", &create_pillar_indice_pairs_stack_wrapper, "create_pillar_indice_pairs_stack_wrapper");
 
-m.def("flatten_indice_pairs_wrapper", &flatten_indice_pairs_wrapper, "flatten_indice_pairs_wrapper");
+m.def("gather_indice_wrapper", &gather_indice_wrapper, "gather_indice_wrapper");
 m.def("gather_feature_wrapper", &gather_feature_wrapper, "gather_feature_wrapper");
 m.def("gather_feature_grad_wrapper", &gather_feature_grad_wrapper, "gather_feature_grad_wrapper");
 

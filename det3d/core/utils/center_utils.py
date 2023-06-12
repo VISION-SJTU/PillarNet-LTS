@@ -73,7 +73,6 @@ def _gather_feat(feat, ind, mask=None):
     return feat
 
 def _transpose_and_gather_feat(feat, ind):
-    feat = feat.permute(0, 2, 3, 1).contiguous()
     feat = feat.view(feat.size(0), -1, feat.size(3))
     feat = _gather_feat(feat, ind)
     return feat
@@ -121,53 +120,7 @@ def bilinear_interpolate_torch(im, x, y):
     return ans
 
 
-def reorganize_test_cfg_for_multi_tasks(test_cfg, task_num_classes):
-    """
-    - for single float, copy for each task head;
-    - for list, re-organize for multiple task heads.
-
-    :param test_cfg:
-      nms=dict(
-        use_rotate_nms=False,
-        # nms_pre_max_size=4096,
-        # nms_post_max_size=500,
-        # nms_iou_threshold=0.7,
-        use_multi_class_nms=True,
-        nms_pre_max_size=[2048, 1024, 1024],
-        nms_post_max_size=[300, 150, 150],
-        nms_iou_threshold=[0.8, 0.55, 0.55],
-    ),
-    rectifier=[0, 0, 0],
-    score_threshold=0.1,
-    :param task_num_classes: [int] * num_classes
-    :return:
-    """
-    def reorganize_param(param):
-        if isinstance(param, float) or isinstance(param, int):
-            return [param] * len(task_num_classes)
-
-        assert isinstance(param, list) or isinstance(param, tuple)
-        assert len(param) == sum(task_num_classes)
-
-        ret_list = [[]] * len(task_num_classes)
-        flag = 0
-        for k, num in enumerate(task_num_classes):
-            ret_list[k] = list(param[flag:flag+num])
-            flag += num
-        return ret_list
-
-    if test_cfg.get('rectifier', False) is not None:
-        test_cfg['rectifier'] = reorganize_param(test_cfg['rectifier'])
-
-    test_cfg['nms']['nms_pre_max_size'] = reorganize_param(test_cfg['nms']['nms_pre_max_size'])
-    test_cfg['nms']['nms_post_max_size'] = reorganize_param(test_cfg['nms']['nms_post_max_size'])
-    test_cfg['nms']['nms_iou_threshold'] = reorganize_param(test_cfg['nms']['nms_iou_threshold'])
-
-    return test_cfg
-
-
-
-def center_to_corner2d(center, dim):
+def _bboxes_to_corners2d(center, dim):
     corners_norm = torch.tensor([[-0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0.5, -0.5]],
                                 dtype=torch.float32, device=dim.device)
     corners = dim.view([-1, 1, 2]) * corners_norm.view([1, 4, 2])
@@ -178,8 +131,8 @@ def center_to_corner2d(center, dim):
 def bbox3d_overlaps_iou(pred_boxes, gt_boxes):
     assert pred_boxes.shape[0] == gt_boxes.shape[0]
 
-    qcorners = center_to_corner2d(pred_boxes[:, :2], pred_boxes[:, 3:5])
-    gcorners = center_to_corner2d(gt_boxes[:, :2], gt_boxes[:, 3:5])
+    qcorners = _bboxes_to_corners2d(pred_boxes[:, :2], pred_boxes[:, 3:5])
+    gcorners = _bboxes_to_corners2d(gt_boxes[:, :2], gt_boxes[:, 3:5])
 
     inter_max_xy = torch.minimum(qcorners[:, 2], gcorners[:, 2])
     inter_min_xy = torch.maximum(qcorners[:, 0], gcorners[:, 0])
@@ -204,8 +157,8 @@ def bbox3d_overlaps_iou(pred_boxes, gt_boxes):
 def bbox3d_overlaps_giou(pred_boxes, gt_boxes):
     assert pred_boxes.shape[0] == gt_boxes.shape[0]
 
-    qcorners = center_to_corner2d(pred_boxes[:, :2], pred_boxes[:, 3:5])
-    gcorners = center_to_corner2d(gt_boxes[:, :2], gt_boxes[:, 3:5])
+    qcorners = _bboxes_to_corners2d(pred_boxes[:, :2], pred_boxes[:, 3:5])
+    gcorners = _bboxes_to_corners2d(gt_boxes[:, :2], gt_boxes[:, 3:5])
 
     inter_max_xy = torch.minimum(qcorners[:, 2], gcorners[:, 2])
     inter_min_xy = torch.maximum(qcorners[:, 0], gcorners[:, 0])
@@ -238,8 +191,8 @@ def bbox3d_overlaps_giou(pred_boxes, gt_boxes):
 def bbox3d_overlaps_diou(pred_boxes, gt_boxes):
     assert pred_boxes.shape[0] == gt_boxes.shape[0]
 
-    qcorners = center_to_corner2d(pred_boxes[:, :2], pred_boxes[:, 3:5])
-    gcorners = center_to_corner2d(gt_boxes[:, :2], gt_boxes[:, 3:5])
+    qcorners = _bboxes_to_corners2d(pred_boxes[:, :2], pred_boxes[:, 3:5])
+    gcorners = _bboxes_to_corners2d(gt_boxes[:, :2], gt_boxes[:, 3:5])
 
     inter_max_xy = torch.minimum(qcorners[:, 2], gcorners[:, 2])
     inter_min_xy = torch.maximum(qcorners[:, 0], gcorners[:, 0])
@@ -272,145 +225,50 @@ def bbox3d_overlaps_diou(pred_boxes, gt_boxes):
 
     return dious
 
-def bboxes_overlaps_ciou_bev(pred_boxes, gt_boxes):
-    """ Calculate the circle IoU in bev space formed by 3D bounding boxes"""
-    assert pred_boxes.shape[0] == gt_boxes.shape[0]
-    assert pred_boxes.shape[1] == gt_boxes.shape[1] == 5
-    cious = torch.zeros([pred_boxes.shape[0], ], device=pred_boxes.device, dtype=torch.float32)
-    if pred_boxes.shape[0] == 0:
-        return cious
 
-    d = torch.sum(torch.pow(gt_boxes[:, 0:2] - pred_boxes[:, 0:2], 2), dim=1)
-    # qr2 = torch.sum(pred_boxes[:, 3:5].clone() ** 2, dim=1)
-    # gr2 = torch.sum(torch.pow(gt_boxes[:, 3:5], 2), dim=1)
-    if torch.any(torch.isnan(d)):
-        print("asdfsaf")
+def set_by_task_cfg(test_cfg, task_num_classes):
+    """
+    -if single float, copy for each task head;
+    -if list, re-organize for multiple task heads.
 
-    d2 = d * d
-    gr = gt_boxes[:, 3]
-    gr2 = gr * gr
+    :param test_cfg:
+      nms=dict(
+            use_rotate_nms=False,
+            # nms_pre_max_size=4096,
+            # nms_post_max_size=500,
+            # nms_iou_threshold=0.7,
+            use_multi_class_nms=True,
+            nms_pre_max_size=[2048, 1024, 1024],
+            nms_post_max_size=[300, 150, 150],
+            nms_iou_threshold=[0.8, 0.55, 0.55],
+        ),
+        rectifier=[0, 0, 0],
+        score_threshold=0.1,
+        :param task_num_classes: [int] * num_classes
+    :return:
+    """
+    def _param_org(param):
+        if isinstance(param, float) or isinstance(param, int):
+            return param
 
-    index_inside = torch.nonzero(d <= torch.abs(pred_boxes[:, 3] - gr))
-    if len(index_inside) > 0:
-        cious[index_inside[:, 0]] = torch.minimum(pred_boxes[:, 3][index_inside[:, 0]] ** 2, gr2[index_inside[:, 0]]) / \
-                                    torch.maximum(pred_boxes[:, 3][index_inside[:, 0]] ** 2, gr2[index_inside[:, 0]])
+        assert isinstance(param, list) or isinstance(param, tuple)
+        assert len(param) == sum(task_num_classes)
 
-    index_insec = torch.nonzero((d > torch.abs(pred_boxes[:, 3] - gr)) & (d < (pred_boxes[:, 3] + gr)))
-    if len(index_insec) > 0:
-        # qr2_t = qr[index_insec[:, 0]] * qr[index_insec[:, 0]]
-        # gr2_t = gr[index_insec[:, 0]] * gr[index_insec[:, 0]]
-        x_t = (pred_boxes[:, 3][index_insec[:, 0]]**2 - gr2[index_insec[:, 0]] + d2[index_insec[:, 0]]) / (2 * d[index_insec[:, 0]])
-        z_t = x_t * x_t
-        y_t = torch.sqrt(torch.clamp(pred_boxes[:, 3][index_insec[:, 0]]**2 - z_t, min=0))
+        ret_list = [[]] * len(task_num_classes)
+        flag = 0
+        for k, num in enumerate(task_num_classes):
+            ret_list[k] = list(param[flag:flag+num])
+            flag += num
+        return ret_list
 
-        overlaps = ((pred_boxes[:, 3][index_insec[:, 0]]**2) * torch.arcsin(torch.clamp(y_t / gr[index_insec[:, 0]], min=-1, max=1.)) +
-                    gr2[index_insec[:, 0]] * torch.arcsin(torch.clamp(y_t / gr[index_insec[:, 0]], min=-1, max=1.)) -
-                    y_t * (x_t + torch.sqrt(z_t + gr2[index_insec[:, 0]] - pred_boxes[:, 3][index_insec[:, 0]]**2)))
-        cious[index_insec[:, 0]] = overlaps / (np.pi * pred_boxes[:, 3][index_insec[:, 0]]**2 + np.pi * gr2[index_insec[:, 0]] - overlaps)
+    if test_cfg.get('rectifier', False):
+        test_cfg['rectifier'] = _param_org(test_cfg['rectifier'])
+        
+    if test_cfg.get('use_rectify', False):
+        test_cfg['use_rectify'] = _param_org(test_cfg['use_rectify'])
 
-        if torch.any(torch.isnan(cious)):
-            print("asdfsaf")
-    cious = torch.clamp(cious, min=0, max=1.0)
-    return cious
+    test_cfg['nms']['nms_pre_max_size'] = _param_org(test_cfg['nms']['nms_pre_max_size'])
+    test_cfg['nms']['nms_post_max_size'] = _param_org(test_cfg['nms']['nms_post_max_size'])
+    test_cfg['nms']['nms_iou_threshold'] = _param_org(test_cfg['nms']['nms_iou_threshold'])
 
-def bboxes_overlaps_ciou(pred_boxes, gt_boxes):
-    """ Calculate the circle IoU in bev space formed by 3D bounding boxes"""
-    assert pred_boxes.shape[0] == gt_boxes.shape[0]
-    assert pred_boxes.shape[1] == gt_boxes.shape[1] == 7
-
-    cious = torch.zeros([pred_boxes.shape[0], ], device=pred_boxes.device, dtype=torch.float32)
-    if pred_boxes.shape[0] == 0:
-        return cious
-
-    d2 = torch.pow(pred_boxes[:, 0:2] - gt_boxes[:, 0:2], 2).sum(-1)
-    qr2 = torch.pow(pred_boxes[:, 3:5], 2).sum(-1)
-    gr2 = torch.pow(gt_boxes[:, 3:5], 2).sum(-1)
-
-    d = torch.sqrt(d2)
-    qr = torch.sqrt(qr2)
-    gr = torch.sqrt(gr2)
-
-    inter_h = torch.minimum(pred_boxes[:, 2] + 0.5 * pred_boxes[:, 5], gt_boxes[:, 2] + 0.5 * gt_boxes[:, 5]) - \
-              torch.maximum(pred_boxes[:, 2] - 0.5 * pred_boxes[:, 5], gt_boxes[:, 2] - 0.5 * gt_boxes[:, 5])
-    inter_h = torch.clamp(inter_h, min=0)
-
-    inside_mask = d <= torch.abs(qr - gr)
-    index_inside = torch.nonzero(inside_mask)
-    if len(index_inside) > 0:
-        overlaps_insides = torch.minimum(qr2[inside_mask], gr2[inside_mask]) * inter_h[inside_mask]  # * np.pi
-        cious[index_inside[:, 0]] = overlaps_insides / (qr2[inside_mask] * gt_boxes[:, 5][inside_mask] +
-                                                        gr2[inside_mask] * gt_boxes[:, 5][inside_mask] -
-                                                        overlaps_insides + 1e-4)
-
-    insec_mask = (d > torch.abs(qr - gr)) & (d < (qr + gr))
-    index_insec = torch.nonzero(insec_mask)
-    if len(index_insec) > 0:
-        qr_t = qr[insec_mask]
-        gr_t = gr[insec_mask]
-        d_t = d[insec_mask]
-
-        qr2_t = qr_t * qr_t
-        gr2_t = gr_t * gr_t
-        x_t = (qr2_t - gr2_t + d_t * d_t) / (2 * d_t)
-        z_t = x_t * x_t
-        y_t = torch.sqrt(torch.clamp(qr2_t - z_t, min=0.))
-
-        overlaps = (qr2_t * torch.arcsin(torch.clamp(y_t / qr_t, max=1.)) +
-                    gr2_t * torch.arcsin(torch.clamp(y_t / gr_t, max=1.)) -
-                    y_t * (x_t + torch.sqrt(torch.clamp(z_t + gr2_t - qr2_t, min=0.)))) * inter_h[insec_mask]
-        cious[index_insec[:, 0]] = overlaps / (np.pi * qr2_t * pred_boxes[:, 5][insec_mask] +
-                                               np.pi * gr2_t * gt_boxes[:, 5][insec_mask] -
-                                               overlaps + 1e-4)
-    cious = torch.clamp(cious, min=0, max=1.0)
-    return cious
-
-def bboxes_overlaps_cdiou(pred_boxes, gt_boxes):
-    """ Calculate the circle IoU in bev space formed by 3D bounding boxes"""
-    assert pred_boxes.shape[1] == gt_boxes.shape[1] == 7
-    # cious = torch.zeros([pred_boxes.shape[0], ], device=pred_boxes.device, dtype=torch.float32)
-
-    d2 = torch.pow(pred_boxes[:, 0:2] - gt_boxes[:, 0:2], 2).sum(-1)
-    qr2 = torch.pow(pred_boxes[:, 3:5], 2).sum(-1)
-    gr2 = torch.pow(gt_boxes[:, 3:5], 2).sum(-1)
-
-    d = torch.sqrt(d2)
-    qr = torch.sqrt(qr2)
-    gr = torch.sqrt(gr2)
-
-    cdious = -1. * d2 / torch.pow(d + qr + gr, 2)
-
-    inter_h = torch.minimum(pred_boxes[:, 2] + 0.5 * pred_boxes[:, 5], gt_boxes[:, 2] + 0.5 * gt_boxes[:, 5]) - \
-              torch.maximum(pred_boxes[:, 2] - 0.5 * pred_boxes[:, 5], gt_boxes[:, 2] - 0.5 * gt_boxes[:, 5])
-    inter_h = torch.clamp(inter_h, min=0)
-
-    inside_mask = d <= torch.abs(qr - gr)
-    index_inside = torch.nonzero(inside_mask)
-
-    d2 = d2[inside_mask]
-    qr2 = qr2[inside_mask]
-    gr2 = gr2[inside_mask]
-    overlaps_insides = torch.minimum(qr2, gr2) * inter_h[inside_mask]  # * np.pi
-    cdious[index_inside[:, 0]] = overlaps_insides / (
-            qr2 * gt_boxes[:, 5][inside_mask] + gr2 * gt_boxes[:, 5][inside_mask] - overlaps_insides) - \
-            d2 / torch.maximum(qr2, gr2)
-
-    insec_mask = (~inside_mask) & (d < (qr + gr))
-    index_insec = torch.nonzero(insec_mask)
-    qr = qr[insec_mask]
-    gr = gr[insec_mask]
-    d = d[insec_mask]
-
-    d2 = d * d
-    qr2 = qr * qr
-    gr2 = gr * gr
-    x = (qr2 - gr2 + d2) / (2 * d)
-    z = x * x
-    y = torch.sqrt(qr2 - z)
-
-    overlaps = (qr2 * torch.arcsin(y / qr) + gr2 * torch.arcsin(y / gr) -
-                y * (x + torch.sqrt(z + gr2 - qr2))) * inter_h[insec_mask]
-    cdious[index_insec[:, 0]] = overlaps / (
-            np.pi * qr2 * pred_boxes[:, 5][insec_mask] + np.pi * gr2 * gt_boxes[:, 5][insec_mask] - overlaps) - \
-            d2 / torch.pow(d + qr + gr, 2)
-    cdious = torch.clamp(cdious, min=-1, max=1.)
-    return cdious
+    return test_cfg

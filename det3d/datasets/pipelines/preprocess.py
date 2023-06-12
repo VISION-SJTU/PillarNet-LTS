@@ -1,11 +1,8 @@
 import numpy as np
-import torch
-from copy import deepcopy
 from det3d.core.bbox import box_np_ops
 from det3d.core.sampler import preprocess as prep
 from det3d.builder import build_dbsampler
 
-from det3d.core.input.voxel_generator import VoxelGenerator
 from det3d.core.utils.center_utils import (
     draw_umich_gaussian, gaussian_radius
 )
@@ -25,12 +22,13 @@ def drop_arrays_by_name(gt_names, used_classes):
     inds = np.array(inds, dtype=np.int64)
     return inds
 
+
 @PIPELINES.register_module
 class Preprocess(object):
     def __init__(self, cfg=None, **kwargs):
         self.shuffle_points = cfg.shuffle_points
         self.min_points_in_gt = cfg.get("min_points_in_gt", -1)
-        
+
         self.mode = cfg.mode
         if self.mode == "train":
             self.global_rotation_noise = cfg.global_rot_noise
@@ -128,7 +126,7 @@ class Preprocess(object):
             gt_dict["gt_classes"] = gt_classes
 
             gt_dict["gt_boxes"], points = prep.random_flip_both(gt_dict["gt_boxes"], points)
-            
+
             gt_dict["gt_boxes"], points = prep.global_rotation(
                 gt_dict["gt_boxes"], points, rotation=self.global_rotation_noise
             )
@@ -150,7 +148,6 @@ class Preprocess(object):
             )
             gt_dict["gt_classes"] = gt_classes
 
-
         if self.shuffle_points:
             np.random.shuffle(points)
 
@@ -162,117 +159,20 @@ class Preprocess(object):
         return res, info
 
 
-@PIPELINES.register_module
-class Voxelization(object):
-    def __init__(self, **kwargs):
-        cfg = kwargs.get("cfg", None)
-        self.range = cfg.range
-        self.voxel_size = cfg.voxel_size
-        self.max_points_in_voxel = cfg.max_points_in_voxel
-        self.max_voxel_num = [cfg.max_voxel_num, cfg.max_voxel_num] if isinstance(cfg.max_voxel_num, int) else cfg.max_voxel_num
-
-        self.double_flip = cfg.get('double_flip', False)
-
-        self.voxel_generator = VoxelGenerator(
-            voxel_size=self.voxel_size,
-            point_cloud_range=self.range,
-            max_num_points=self.max_points_in_voxel,
-            max_voxels=self.max_voxel_num[0],
-        )
-
-    def __call__(self, res, info):
-        voxel_size = self.voxel_generator.voxel_size
-        pc_range = self.voxel_generator.point_cloud_range
-        grid_size = self.voxel_generator.grid_size
-
-        if res["mode"] == "train":
-            gt_dict = res["lidar"]["annotations"]
-            bv_range = pc_range[[0, 1, 3, 4]]
-            mask = prep.filter_gt_box_outside_range(gt_dict["gt_boxes"], bv_range)
-            _dict_select(gt_dict, mask)
-
-            res["lidar"]["annotations"] = gt_dict
-            # max_voxels = self.max_voxel_num[0]
-        # else:
-            # max_voxels = self.max_voxel_num[1]
-
-        # voxels, coordinates, num_points = self.voxel_generator.generate(
-        #     res["lidar"]["points"], max_voxels=max_voxels
-        # )
-        # num_voxels = np.array([voxels.shape[0]], dtype=np.int64)
-        #
-        # res["lidar"]["voxels"] = dict(
-        #     voxels=voxels,
-        #     coordinates=coordinates,
-        #     num_points=num_points,
-        #     num_voxels=num_voxels,
-        #     shape=grid_size,
-        #     range=pc_range,
-        #     size=voxel_size
-        # )
-        #
-        # double_flip = self.double_flip and (res["mode"] != 'train')
-        #
-        # if double_flip:
-        #     flip_voxels, flip_coordinates, flip_num_points = self.voxel_generator.generate(
-        #         res["lidar"]["yflip_points"]
-        #     )
-        #     flip_num_voxels = np.array([flip_voxels.shape[0]], dtype=np.int64)
-        #
-        #     res["lidar"]["yflip_voxels"] = dict(
-        #         voxels=flip_voxels,
-        #         coordinates=flip_coordinates,
-        #         num_points=flip_num_points,
-        #         num_voxels=flip_num_voxels,
-        #         shape=grid_size,
-        #         range=pc_range,
-        #         size=voxel_size
-        #     )
-        #
-        #     flip_voxels, flip_coordinates, flip_num_points = self.voxel_generator.generate(
-        #         res["lidar"]["xflip_points"]
-        #     )
-        #     flip_num_voxels = np.array([flip_voxels.shape[0]], dtype=np.int64)
-        #
-        #     res["lidar"]["xflip_voxels"] = dict(
-        #         voxels=flip_voxels,
-        #         coordinates=flip_coordinates,
-        #         num_points=flip_num_points,
-        #         num_voxels=flip_num_voxels,
-        #         shape=grid_size,
-        #         range=pc_range,
-        #         size=voxel_size
-        #     )
-        #
-        #     flip_voxels, flip_coordinates, flip_num_points = self.voxel_generator.generate(
-        #         res["lidar"]["double_flip_points"]
-        #     )
-        #     flip_num_voxels = np.array([flip_voxels.shape[0]], dtype=np.int64)
-        #
-        #     res["lidar"]["double_flip_voxels"] = dict(
-        #         voxels=flip_voxels,
-        #         coordinates=flip_coordinates,
-        #         num_points=flip_num_points,
-        #         num_voxels=flip_num_voxels,
-        #         shape=grid_size,
-        #         range=pc_range,
-        #         size=voxel_size
-        #     )
-
-        return res, info
-
 def flatten(box):
     return np.concatenate(box, axis=0)
 
-def merge_multi_group_label(gt_classes, num_classes_by_task): 
+
+def merge_multi_group_label(gt_classes, num_classes_by_task):
     num_task = len(gt_classes)
-    flag = 0 
+    flag = 0
 
     for i in range(num_task):
-        gt_classes[i] += flag 
+        gt_classes[i] += flag
         flag += num_classes_by_task[i]
 
     return flatten(gt_classes)
+
 
 @PIPELINES.register_module
 class AssignLabel(object):
@@ -284,198 +184,167 @@ class AssignLabel(object):
         self.gaussian_overlap = assigner_cfg.gaussian_overlap
         self._max_objs = assigner_cfg.max_objs
         self._min_radius = assigner_cfg.min_radius
-        self.pc_range = assigner_cfg.pc_range
-        self.voxel_size = assigner_cfg.voxel_size
-        self.pc_range = np.array(assigner_cfg.pc_range, dtype=np.float32)
-        self.voxel_size = np.array(assigner_cfg.voxel_size, dtype=np.float32)
-        self.grid_size = np.round((self.pc_range[3:] - self.pc_range[:3]) / self.voxel_size).astype(np.int64)
+        self._cfg = assigner_cfg
 
     def __call__(self, res, info):
         max_objs = self._max_objs
         class_names_by_task = [t.class_names for t in self.tasks]
         num_classes_by_task = [len(t.class_names) for t in self.tasks]
 
-        # Calculate output featuremap size
-        grid_size = self.grid_size
-        pc_range = self.pc_range
-        voxel_size = self.voxel_size
-
-        feature_map_size = grid_size[:2]
         example = {}
+        
+        # Calculate output featuremap size
+        pc_range = np.array(self._cfg['pc_range'], dtype=np.float32)
+        pillar_size = np.array(self._cfg['pillar_size'], dtype=np.float32)
+        grid_size = (pc_range[3:5] - pc_range[:2]) / pillar_size
+        grid_size = np.round(grid_size).astype(np.int64)
 
-        if res["mode"] == "train":
-            # # Calculate output featuremap size
-            # if 'voxels' in res['lidar']:
-            #     # Calculate output featuremap size
-            #     grid_size = res["lidar"]["voxels"]["shape"]
-            #     pc_range = res["lidar"]["voxels"]["range"]
-            #     voxel_size = res["lidar"]["voxels"]["size"]
-            #     feature_map_size = grid_size[:2] // self.out_size_factor
-            # else:
-            #     pc_range = np.array(self.cfg['pc_range'], dtype=np.float32)
-            #     voxel_size = np.array(self.cfg['voxel_size'], dtype=np.float32)
-            #     grid_size = (pc_range[3:] - pc_range[:3]) / voxel_size
-            #     grid_size = np.round(grid_size).astype(np.int64)
+        gt_dict = res["lidar"]["annotations"]
 
-            # feature_map_size = grid_size[:2] // self.out_size_factor
+        # reorganize the gt_dict by tasks
+        task_masks = []
+        flag = 0
+        for class_name in class_names_by_task:
+            task_masks.append(
+                [
+                    np.where(
+                        gt_dict["gt_classes"] == class_name.index(i) + 1 + flag
+                    )
+                    for i in class_name
+                ]
+            )
+            flag += len(class_name)
 
-            gt_dict = res["lidar"]["annotations"]
+        task_boxes = []
+        task_classes = []
+        task_names = []
+        flag2 = 0
+        for idx, mask in enumerate(task_masks):
+            task_box = []
+            task_class = []
+            task_name = []
+            for m in mask:
+                task_box.append(gt_dict["gt_boxes"][m])
+                task_class.append(gt_dict["gt_classes"][m] - flag2)
+                task_name.append(gt_dict["gt_names"][m])
+            task_boxes.append(np.concatenate(task_box, axis=0))
+            task_classes.append(np.concatenate(task_class))
+            task_names.append(np.concatenate(task_name))
+            flag2 += len(mask)
 
-            # reorganize the gt_dict by tasks
-            task_masks = []
-            flag = 0
-            for class_name in class_names_by_task:
-                task_masks.append(
-                    [
-                        np.where(
-                            gt_dict["gt_classes"] == class_name.index(i) + 1 + flag
-                        )
-                        for i in class_name
-                    ]
-                )
-                flag += len(class_name)
+        for task_box in task_boxes:
+            # limit rad to [-pi, pi]
+            task_box[:, -1] = box_np_ops.limit_period(
+                task_box[:, -1], offset=0.5, period=np.pi * 2
+            )
 
-            task_boxes = []
-            task_classes = []
-            task_names = []
-            flag2 = 0
-            for idx, mask in enumerate(task_masks):
-                task_box = []
-                task_class = []
-                task_name = []
-                for m in mask:
-                    task_box.append(gt_dict["gt_boxes"][m])
-                    task_class.append(gt_dict["gt_classes"][m] - flag2)
-                    task_name.append(gt_dict["gt_names"][m])
-                task_boxes.append(np.concatenate(task_box, axis=0))
-                task_classes.append(np.concatenate(task_class))
-                task_names.append(np.concatenate(task_name))
-                flag2 += len(mask)
+        gt_dict["gt_classes"] = task_classes
+        gt_dict["gt_names"] = task_names
+        gt_dict["gt_boxes"] = task_boxes
 
-            for task_box in task_boxes:
-                # limit rad to [-pi, pi]
-                task_box[:, -1] = box_np_ops.limit_period(
-                    task_box[:, -1], offset=0.5, period=np.pi * 2
-                )
+        res["lidar"]["annotations"] = gt_dict
 
-            # print(gt_dict.keys())
-            gt_dict["gt_classes"] = task_classes
-            gt_dict["gt_names"] = task_names
-            gt_dict["gt_boxes"] = task_boxes
+        draw_gaussian = draw_umich_gaussian
 
-            res["lidar"]["annotations"] = gt_dict
+        hms, anno_boxs, inds, masks, cats, gt_boxs = [], [], [], [], [], []
 
-            draw_gaussian = draw_umich_gaussian
+        for idx, task in enumerate(self.tasks):
+            task_grid_size = grid_size // task.stride
+            hm = np.zeros((len(class_names_by_task[idx]), task_grid_size[1], task_grid_size[0]),
+                            dtype=np.float32)
 
-            hms, anno_boxs, inds, masks, cats, gt_boxs = [], [], [], [], [], []
+            anno_box = np.zeros((max_objs, 10), dtype=np.float32)
+            gt_box = np.zeros((max_objs, 7), dtype=np.float32)
 
-            for idx, task in enumerate(self.tasks):
-                cur_feat_map_size = feature_map_size // task.stride
-                hm = np.zeros((len(class_names_by_task[idx]), cur_feat_map_size[1], cur_feat_map_size[0]),
-                              dtype=np.float32)
+            ind = np.zeros((max_objs), dtype=np.int64)
+            mask = np.zeros((max_objs), dtype=np.uint8)
+            cat = np.zeros((max_objs), dtype=np.int64)
 
-                # if res['type'] == 'NuScenesDataset':
-                #     # [reg, hei, dim, vx, vy, rots, rotc]
-                #     anno_box = np.zeros((max_objs, 10), dtype=np.float32)
-                # elif res['type'] == 'WaymoDataset':
-                #     anno_box = np.zeros((max_objs, 10), dtype=np.float32)
-                # else:
-                #     raise NotImplementedError("Only Support nuScene for Now!")
-                gt_box = np.zeros((max_objs, 7), dtype=np.float32)
-                anno_box = np.zeros((max_objs, 10), dtype=np.float32)
-                ind = np.zeros((max_objs), dtype=np.int64)
-                mask = np.zeros((max_objs), dtype=np.uint8)
-                cat = np.zeros((max_objs), dtype=np.int64)
+            num_objs = min(gt_dict['gt_boxes'][idx].shape[0], max_objs)
 
-                num_objs = min(gt_dict['gt_boxes'][idx].shape[0], max_objs)  
+            for k in range(num_objs):
+                cls_id = gt_dict['gt_classes'][idx][k] - 1
 
-                for k in range(num_objs):
-                    cls_id = gt_dict['gt_classes'][idx][k] - 1
+                w, l, h = gt_dict['gt_boxes'][idx][k][3], gt_dict['gt_boxes'][idx][k][4], \
+                            gt_dict['gt_boxes'][idx][k][5]
+                w, l = w / (pillar_size * task.stride), l / (pillar_size * task.stride)
+                if w > 0 and l > 0:
+                    radius = gaussian_radius((l, w), min_overlap=self.gaussian_overlap)
+                    if isinstance(self._min_radius, list):
+                        radius = max(self._min_radius[cls_id], int(radius))
+                    else:
+                        radius = max(self._min_radius, int(radius))
 
-                    w, l, h = gt_dict['gt_boxes'][idx][k][3], gt_dict['gt_boxes'][idx][k][4], \
-                              gt_dict['gt_boxes'][idx][k][5]
-                    w, l = w / voxel_size[0] / task.stride, l / voxel_size[1] / task.stride
-                    if w > 0 and l > 0:
-                        radius = gaussian_radius((l, w), min_overlap=self.gaussian_overlap)
-                        if isinstance(self._min_radius, list):
-                            radius = max(self._min_radius[cls_id], int(radius))
-                        else:
-                            radius = max(self._min_radius, int(radius))
+                    # be really careful for the coordinate system of your box annotation.
+                    x, y, z = gt_dict['gt_boxes'][idx][k][0], gt_dict['gt_boxes'][idx][k][1], \
+                                gt_dict['gt_boxes'][idx][k][2]
 
-                        # be really careful for the coordinate system of your box annotation. 
-                        x, y, z = gt_dict['gt_boxes'][idx][k][0], gt_dict['gt_boxes'][idx][k][1], \
-                                  gt_dict['gt_boxes'][idx][k][2]
+                    coor_x, coor_y = (x - pc_range[0]) / (pillar_size * task.stride), \
+                                        (y - pc_range[1]) / (pillar_size * task.stride)
 
-                        coor_x, coor_y = (x - pc_range[0]) / voxel_size[0] / task.stride, \
-                                         (y - pc_range[1]) / voxel_size[1] / task.stride
+                    ct = np.array([coor_x, coor_y], dtype=np.float32)
+                    ct_int = ct.astype(np.int32)
 
-                        ct = np.array(
-                            [coor_x, coor_y], dtype=np.float32)  
-                        ct_int = ct.astype(np.int32)
+                    # throw out not in range objects to avoid out of array area when creating the heatmap
+                    if not (0 <= ct_int[0] < task_grid_size[0] and 0 <= ct_int[1] < task_grid_size[1]):
+                        continue
 
-                        # throw out not in range objects to avoid out of array area when creating the heatmap
-                        if not (0 <= ct_int[0] < cur_feat_map_size[0] and 0 <= ct_int[1] < cur_feat_map_size[1]):
-                            continue
+                    draw_gaussian(hm[cls_id], ct, radius)
 
-                        draw_gaussian(hm[cls_id], ct, radius)
+                    new_idx = k
+                    x, y = ct_int[0], ct_int[1]
 
-                        new_idx = k
-                        x, y = ct_int[0], ct_int[1]
+                    cat[new_idx] = cls_id
+                    ind[new_idx] = y * task_grid_size[0] + x
+                    mask[new_idx] = 1
+                    gt_box[new_idx] = gt_dict['gt_boxes'][idx][k][[0, 1, 2, 3, 4, 5, 8]]
 
-                        cat[new_idx] = cls_id
-                        ind[new_idx] = y * cur_feat_map_size[0] + x
-                        mask[new_idx] = 1
-                        gt_box[new_idx] = gt_dict['gt_boxes'][idx][k][[0, 1, 2, 3, 4, 5, 8]]
-
-                        if res['type'] == 'NuScenesDataset': 
-                            vx, vy = gt_dict['gt_boxes'][idx][k][6:8]
-                            rot = gt_dict['gt_boxes'][idx][k][8]
-                            anno_box[new_idx] = np.concatenate(
-                                (ct - (x, y), z, np.log(gt_dict['gt_boxes'][idx][k][3:6]),
-                                np.array(vx), np.array(vy), np.sin(rot), np.cos(rot)), axis=None)
-                        elif res['type'] == 'WaymoDataset':
-                            vx, vy = gt_dict['gt_boxes'][idx][k][6:8]
-                            rot = gt_dict['gt_boxes'][idx][k][-1]
-                            anno_box[new_idx] = np.concatenate(
+                    if res['type'] == 'NuScenesDataset':
+                        vx, vy = gt_dict['gt_boxes'][idx][k][6:8]
+                        rot = gt_dict['gt_boxes'][idx][k][8]
+                        anno_box[new_idx] = np.concatenate(
                             (ct - (x, y), z, np.log(gt_dict['gt_boxes'][idx][k][3:6]),
-                            np.array(vx), np.array(vy), np.sin(rot), np.cos(rot)), axis=None)
-                        else:
-                            raise NotImplementedError("Only Support Waymo and nuScene for Now")
+                                np.array(vx), np.array(vy), np.sin(rot), np.cos(rot)), axis=None)
+                    elif res['type'] == 'WaymoDataset':
+                        vx, vy = gt_dict['gt_boxes'][idx][k][6:8]
+                        rot = gt_dict['gt_boxes'][idx][k][-1]
+                        anno_box[new_idx] = np.concatenate(
+                            (ct - (x, y), z, np.log(gt_dict['gt_boxes'][idx][k][3:6]),
+                                np.array(vx), np.array(vy), np.sin(rot), np.cos(rot)), axis=None)
+                    else:
+                        raise NotImplementedError("Only Support Waymo and nuScene for Now")
 
-                hms.append(hm)
-                anno_boxs.append(anno_box)
-                gt_boxs.append(gt_box)
-                masks.append(mask)
-                inds.append(ind)
-                cats.append(cat)
+            hms.append(hm.transpose((1, 2, 0)))
+            anno_boxs.append(anno_box)
+            gt_boxs.append(gt_box)
+            masks.append(mask)
+            inds.append(ind)
+            cats.append(cat)
 
-            # used for two stage code 
-            boxes = flatten(gt_dict['gt_boxes'])
-            classes = merge_multi_group_label(gt_dict['gt_classes'], num_classes_by_task)
+        # used for two stage code
+        boxes = flatten(gt_dict['gt_boxes'])
+        classes = merge_multi_group_label(gt_dict['gt_classes'], num_classes_by_task)
 
-            if res["type"] == "NuScenesDataset":
-                gt_boxes_and_cls = np.zeros((max_objs, 10), dtype=np.float32)
-            elif res['type'] == "WaymoDataset":
-                gt_boxes_and_cls = np.zeros((max_objs, 10), dtype=np.float32)
-            else:
-                raise NotImplementedError()
-
-            boxes_and_cls = np.concatenate((boxes, 
-                classes.reshape(-1, 1).astype(np.float32)), axis=1)
-            num_obj = len(boxes_and_cls)
-            assert num_obj <= max_objs
-            # x, y, z, w, l, h, rotation_y, velocity_x, velocity_y, class_name
-            boxes_and_cls = boxes_and_cls[:, [0, 1, 2, 3, 4, 5, 8, 6, 7, 9]]
-            gt_boxes_and_cls[:num_obj] = boxes_and_cls
-
-            example.update({'gt_boxes_and_cls': gt_boxes_and_cls})
-
-            example.update({'hm': hms, 'anno_box': anno_boxs, 'ind': inds, 'mask': masks, 'cat': cats,
-                            'gt_box': gt_boxs})
+        if res["type"] == "NuScenesDataset":
+            gt_boxes_and_cls = np.zeros((max_objs, 10), dtype=np.float32)
+        elif res['type'] == "WaymoDataset":
+            gt_boxes_and_cls = np.zeros((max_objs, 10), dtype=np.float32)
         else:
-            pass
+            raise NotImplementedError()
 
+        boxes_and_cls = np.concatenate((boxes,
+                                        classes.reshape(-1, 1).astype(np.float32)), axis=1)
+        num_obj = len(boxes_and_cls)
+        assert num_obj <= max_objs
+        # x, y, z, w, l, h, rotation_y, velocity_x, velocity_y, class_name
+        boxes_and_cls = boxes_and_cls[:, [0, 1, 2, 3, 4, 5, 8, 6, 7, 9]]
+        gt_boxes_and_cls[:num_obj] = boxes_and_cls
+
+        example.update({'gt_boxes_and_cls': gt_boxes_and_cls})
+
+        example.update({'hm': hms, 'anno_box': anno_boxs, 'ind': inds, 'mask': masks, 'cat': cats,
+                        'gt_box': gt_boxs})
+      
         res["lidar"]["targets"] = example
 
         return res, info
-

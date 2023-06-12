@@ -17,6 +17,7 @@ class RoIHeadTemplate(nn.Module):
         self.num_class = num_class
         self.proposal_target_layer = ProposalTargetLayer(roi_sampler_cfg=self.model_cfg.TARGET_CONFIG)
 
+        self.use_iou = False
         self.forward_ret_dict = None
 
     def make_fc_layers(self, input_channels, output_channels, fc_list):
@@ -113,6 +114,38 @@ class RoIHeadTemplate(nn.Module):
 
         return rcnn_loss_reg, tb_dict
 
+    def get_box_iou_layer_loss(self, forward_ret_dict):
+        loss_cfgs = self.model_cfg.LOSS_CONFIG
+        reg_valid_mask = forward_ret_dict['reg_valid_mask'].view(-1)
+        rcnn_iou = forward_ret_dict['rcnn_iou'].view(-1)  # (rcnn_batch_size, 1)
+        gt_boxes3d = forward_ret_dict['gt_of_rois_src'][..., :7].view(-1, 7)
+        batch_box_preds = forward_ret_dict['batch_box_preds'].view(-1, 7).detach()
+
+        fg_mask = (reg_valid_mask > 0)
+        fg_sum = fg_mask.long().sum().item()
+
+        tb_dict = {}
+
+        if loss_cfgs.IOU_LOSS == 'L1':
+            from det3d.ops.iou3d_nms.iou3d_nms_utils import boxes_aligned_iou3d_gpu
+            iou_targets = boxes_aligned_iou3d_gpu(batch_box_preds[fg_mask], 
+                                                  gt_boxes3d[fg_mask])
+            iou_targets = 2 * iou_targets - 1
+            
+            rcnn_loss_iou = F.l1_loss(
+                rcnn_iou[fg_mask],
+                iou_targets,
+                reduction='sum'
+            )  # [B, M]
+
+            rcnn_loss_iou = rcnn_loss_iou / max(fg_sum, 1)
+            rcnn_loss_iou = rcnn_loss_iou * loss_cfgs.LOSS_WEIGHTS['rcnn_iou_weight']
+            tb_dict['rcnn_loss_iou'] = rcnn_loss_iou.detach()
+        else:
+            raise NotImplementedError
+
+        return rcnn_loss_iou, tb_dict
+
     def get_box_cls_layer_loss(self, forward_ret_dict):
         loss_cfgs = self.model_cfg.LOSS_CONFIG
         rcnn_cls = forward_ret_dict['rcnn_cls']
@@ -144,6 +177,12 @@ class RoIHeadTemplate(nn.Module):
         rcnn_loss_reg, reg_tb_dict = self.get_box_reg_layer_loss(self.forward_ret_dict)
         rcnn_loss += rcnn_loss_reg
         tb_dict.update(reg_tb_dict)
+        
+        if self.use_iou:
+            rcnn_loss_iou, iou_tb_dict = self.get_box_iou_layer_loss(self.forward_ret_dict)
+            rcnn_loss += rcnn_loss_iou
+            tb_dict.update(iou_tb_dict)
+            
         tb_dict['rcnn_loss'] = rcnn_loss.item()
         return rcnn_loss, tb_dict
 
