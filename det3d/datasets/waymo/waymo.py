@@ -20,7 +20,7 @@ class WaymoDataset(PointCloudDataset):
         sample=False,
         nsweeps=1,
         load_interval=1,
-        use_cbgs=True,
+        use_cbgs=False,
         **kwargs,
     ):
         self.load_interval = load_interval 
