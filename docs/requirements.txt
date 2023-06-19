@@ -27,4 +27,3 @@ nuscenes-devkit
 numba==0.53.1
 pycocotools
 spconv-cu114
-waymo-open-dataset-tf-2-4-0 
